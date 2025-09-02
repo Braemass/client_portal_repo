@@ -1,0 +1,21 @@
+# Dependencies / build
+node_modules/
+.next/
+out/
+dist/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor junk
+.DS_Store
+*.log
+
+# Vercel / tooling
+.vercel/
+coverage/
+
+# Local data
+*.local

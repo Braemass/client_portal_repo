@@ -1,0 +1,11 @@
+'use client'
+import { StorageClient } from '@supabase/storage-js'
+
+export const storage = new StorageClient(
+  `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1`,
+  {
+    apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}`,
+  }
+)
+
