@@ -50,7 +50,7 @@ export default function AdminSearch() {
               {projects.map(p => (
                 <li key={p.id}>
                   <button
-                    onClick={() => router.push(`/projects/${p.id}`)}
+                    onClick={() => router.push(`/admin/projects/${p.id}`)}
                     className="text-left w-full rounded-lg border px-3 py-2 hover:bg-gray-50"
                   >
                     {p.title}

@@ -40,7 +40,7 @@ export default function ProjectsPage() {
         <ul className="grid gap-3">
           {projects.map((p) => (
             <li key={p.id} className="rounded-xl border p-4 bg-white">
-              <Link href={`/projects/${p.id}`} className="font-medium text-blue-600 hover:underline">
+              <Link href={`/admin/projects/${p.id}`} className="font-medium text-blue-600 hover:underline">
                 {p.title}
               </Link>
               {p.status && <div className="text-sm text-gray-500">Status: {p.status}</div>}

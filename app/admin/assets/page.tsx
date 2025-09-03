@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { useSupabaseSession } from '@/app/hooks/useSupabaseSession';
 
 type Project = { id: string; title: string }
 type Asset = {

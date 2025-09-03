@@ -1,16 +1,12 @@
+// next.config.mjs
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
-  // (We're using Webpack, not Turbopack)
-  webpack: (config) => {
-    config.resolve = config.resolve || {};
-    config.resolve.alias = {
-      ...(config.resolve.alias || {}),
-      // Force the modern ESM entry that includes multipart
-      '@supabase/storage-js': '@supabase/storage-js/dist/module/index.js',
-    };
-    return config;
+  experimental: {
+    // ensures Next bundles ESM deps correctly in the client
+    esmExternals: true,
   },
+  // forces Next to transpile storage-js so tree-shaking doesn't drop multipart
+  transpilePackages: ['@supabase/storage-js'],
 };
 
 export default nextConfig;

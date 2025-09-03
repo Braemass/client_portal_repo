@@ -98,7 +98,7 @@ export default function AdminDashboard() {
 
                   <div className="flex items-center gap-2 shrink-0">
                     <Link
-                      href={`/projects/${p.id}`}
+                      href={`/admin/projects/${p.id}`}
                       className="rounded-md border px-3 py-1 text-sm hover:bg-gray-50"
                       title="View project page"
                     >
@@ -120,7 +120,7 @@ export default function AdminDashboard() {
                       Upload
                     </Link>
 			<Link
-  href={`/projects/${p.id}?mode=client`}
+  href={`/admin/projects/${p.id}?mode=client`}
   className="rounded-md border px-3 py-1 text-sm hover:bg-gray-50"
   title="Open project page exactly how a client sees it (UI-only)"
 >

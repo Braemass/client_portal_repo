@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { useSupabaseSession } from '@/app/hooks/useSupabaseSession';
 
 type Invoice = {
   id: string
@@ -104,7 +105,7 @@ export default function AdminInvoices() {
                     <div className="text-sm text-gray-500">
                       Project:{' '}
                       {pr ? (
-                        <a className="text-blue-600" href={`/projects/${pr.id}`}>{pr.title}</a>
+                        <a className="text-blue-600" href={`/admin/projects/${pr.id}`}>{pr.title}</a>
                       ) : (
                         inv.project_id
                       )}

@@ -56,7 +56,7 @@ export default function ProjectView() {
       <div className="rounded-2xl border bg-white p-6">
         <h1 className="text-xl font-semibold">Error</h1>
         <p className="mt-2 text-red-600">{err}</p>
-        <Link href="/projects" className="mt-4 inline-block rounded bg-gray-900 px-4 py-2 text-white">Back to Projects</Link>
+        <Link href="/admin/projects" className="mt-4 inline-block rounded bg-gray-900 px-4 py-2 text-white">Back to Projects</Link>
       </div>
     </main>
   )
@@ -70,7 +70,7 @@ export default function ProjectView() {
             {p.title}{clientMode ? ' (Client Preview)' : ''}
           </h1>
           <div className="flex gap-2">
-            <Link href="/projects" className="rounded-lg border px-3 py-2 hover:bg-gray-50">All Projects</Link>
+            <Link href="/admin/projects" className="rounded-lg border px-3 py-2 hover:bg-gray-50">All Projects</Link>
 
             {/* Show admin-only controls only when NOT in clientMode */}
             {!clientMode && (
@@ -82,7 +82,7 @@ export default function ProjectView() {
                   Edit
                 </Link>
                 {/* Quick toggle to preview */}
-                <Link href={`/projects/${p.id}?mode=client`} className="rounded-lg border px-3 py-2 hover:bg-gray-50">
+                <Link href={`/admin/projects/${p.id}?mode=client`} className="rounded-lg border px-3 py-2 hover:bg-gray-50">
                   View as client
                 </Link>
               </>
@@ -90,7 +90,7 @@ export default function ProjectView() {
 
             {/* When already in clientMode, offer exit back to admin view */}
             {clientMode && (
-              <Link href={`/projects/${p.id}`} className="rounded-lg border px-3 py-2 hover:bg-gray-50">
+              <Link href={`/admin/projects/${p.id}`} className="rounded-lg border px-3 py-2 hover:bg-gray-50">
                 Exit client preview
               </Link>
             )}

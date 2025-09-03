@@ -34,7 +34,7 @@ export default function NewProjectPage() {
       .single()
     if (error) return setMsg('❌ '+error.message)
     setMsg('✅ Project created')
-    if (data?.id) location.href = `/projects/${data.id}`
+    if (data?.id) location.href = `/admin/projects/${data.id}`
   }
 
   return (
@@ -42,7 +42,7 @@ export default function NewProjectPage() {
       <div className="mx-auto max-w-xl space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">New Project</h1>
-          <Link className="text-blue-600" href="/projects">Back to Projects</Link>
+          <Link className="text-blue-600" href="/admin/projects">Back to Projects</Link>
         </div>
 
         <div className="rounded-2xl border bg-white p-4 shadow space-y-3">

@@ -2,6 +2,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { useSupabaseSession } from '@/app/hooks/useSupabaseSession';
 
 type Project = { id: string; title: string }
 type Kind = 'pdf' | 'image' | 'video' | 'orthomosaic' | 'model' | 'other'

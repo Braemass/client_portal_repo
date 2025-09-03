@@ -111,7 +111,7 @@ export default function AdminProjectList() {
                       Copy “project_id” value
                     </button>
                     <Link
-                      href={`/projects/${r.id}`}
+                      href={`/admin/projects/${r.id}`}
                       className="rounded-md border px-3 py-1 text-sm hover:bg-gray-50"
                       title="View project page"
                     >
@@ -133,7 +133,7 @@ export default function AdminProjectList() {
                       Upload
                     </Link>
 			<Link
-  href={`/projects/${r.id}?mode=client`}
+  href={`/admin/projects/${r.id}?mode=client`}
   className="rounded-md border px-3 py-1 text-sm hover:bg-gray-50"
   title="Client preview"
 >

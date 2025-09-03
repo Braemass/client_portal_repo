@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
+import { useSupabaseSession } from '@/app/hooks/useSupabaseSession';
 
 type Project = { id: string; title: string; status: string }
 
@@ -32,7 +33,7 @@ export default function EditProject() {
     const res = await fetch(`/api/admin/projects/${id}/delete`, { method: 'POST' })
     const j = await res.json()
     if (res.ok) {
-      setMsg('✅ Deleted'); router.push('/projects')
+      setMsg('✅ Deleted'); router.push("/admin/projects')
     } else {
       setMsg('❌ ' + (j.error || 'Failed'))
     }
@@ -59,7 +60,7 @@ export default function EditProject() {
           </div>
           {msg && <p className="text-sm mt-2">{msg}</p>}
         </div>
-        <a className="text-blue-600" href={`/projects/${id}`}>View project page →</a>
+        <a className="text-blue-600" href={`/admin/projects/${id}`}>View project page →</a>
       </div>
     </main>
   )
