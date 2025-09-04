@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { useSupabaseSession } from '@/app/hooks/useSupabaseSession';
+// import { useSupabaseSession } from '@/app/hooks/useSupabaseSession'; // (unused)
 
 type Invoice = {
   id: string
@@ -11,7 +11,9 @@ type Invoice = {
   stripe_invoice_url: string | null
   due_date: string | null
 }
-type Project = { id: string; title: string }
+
+// allow title to be nullable to match typical DB shape
+type Project = { id: string; title: string | null }
 
 const ACTIVE_STATUSES = ['due','overdue','open','unpaid','pending'] as const
 type Filter = 'all' | 'active' | 'due' | 'overdue' | 'paid' | 'draft'
@@ -26,9 +28,15 @@ export default function AdminInvoices() {
   // preload projects map
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.from('projects').select('id,title')
+      const { data, error } = await supabase
+        .from('projects')
+        .select('id,title')
+        .returns<Project[]>() // ✅ type rows
+
       if (!error && data) {
-        const map = Object.fromEntries(data.map(p => [p.id, p]))
+        const map = Object.fromEntries(
+          data.map((p) => [p.id, p]) // p is typed as Project
+        ) as Record<string, Project>
         setProjectsById(map)
       }
     })()
@@ -51,7 +59,11 @@ export default function AdminInvoices() {
   const filtered = useMemo(() => {
     if (filter === 'all') return rows
     if (filter === 'active') {
-      return rows.filter(r => r.status && ACTIVE_STATUSES.includes(r.status.toLowerCase() as any))
+      const toLower = (s: string | null) => (s ?? '').toLowerCase()
+      return rows.filter(r => {
+        const s = toLower(r.status)
+        return (s && (ACTIVE_STATUSES as readonly string[]).includes(s))
+      })
     }
     return rows.filter(r => (r.status || '').toLowerCase() === filter)
   }, [rows, filter])
@@ -105,7 +117,7 @@ export default function AdminInvoices() {
                     <div className="text-sm text-gray-500">
                       Project:{' '}
                       {pr ? (
-                        <a className="text-blue-600" href={`/admin/projects/${pr.id}`}>{pr.title}</a>
+                        <a className="text-blue-600" href={`/admin/projects/${pr.id}`}>{pr.title ?? pr.id}</a>
                       ) : (
                         inv.project_id
                       )}
