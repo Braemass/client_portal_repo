@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}'],
+  // No darkMode, no content globs needed in v4
   theme: { extend: {} },
   plugins: [],
-}
+};
+

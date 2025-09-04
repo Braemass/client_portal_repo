@@ -1,10 +1,7 @@
+/* Tailwind v4 — single import */
 @import "tailwindcss";
 
-/* Your global styles can follow */
-html, body {
-  margin: 0;
-  padding: 0;
-  font-family: system-ui, sans-serif;
-  background-color: #f9fafb;
-  color: #111;
-}
+/* (optional) a couple of sensible globals */
+:root { color-scheme: light; }
+html, body { min-height: 100%; }
+

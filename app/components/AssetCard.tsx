@@ -1,165 +1,238 @@
-'use client'
-import { useEffect, useMemo, useState } from 'react'
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+
+export type Asset = {
+  id: string;
+  title?: string | null;
+  kind?: string | null;      // 'image' | 'model' | 'video' | 'other' | legacy 'photo'
+  url?: string | null;
+  path?: string | null;
+  storage_path?: string | null;
+  public_url?: string | null;
+  created_at?: string | null;
+  progress_group?: string | null;
+  is_progress?: boolean | null;
+};
 
 type Props = {
-  title: string
-  kind?: string | null
-  mime?: string | null           // optional; we’ll also guess from extension
-  storagePath?: string | null    // e.g. 'projectId/123-file.tif'
-  sketchfabUrl?: string | null   // e.g. https://sketchfab.com/models/<uid> or iframe
+  asset: Asset;
+  canEdit?: boolean;
+  className?: string;
+  onChanged?: () => void;
+};
+
+const BUCKET_ORIGINALS = 'deliverables';
+const BUCKET_PREVIEWS  = 'previews';
+
+function cleanTitle(a: Asset) {
+  const t = (a.title ?? '').trim();
+  if (!t || /^div>?$/i.test(t)) return a.kind === 'model' ? '3D Model' : 'Asset';
+  return t;
 }
-
-/** Normalize many Sketchfab variants (URL, iframe, raw UID) → https://sketchfab.com/models/<uid> */
-function normalizeSketchfabUrl(input: string): string | null {
-  if (!input) return null
-  const raw = input.trim()
-  const iframeSrc = raw.match(/<iframe[^>]*\s+src=["']([^"']+)["']/i)?.[1]
-  const candidate = (iframeSrc || raw).trim()
-
-  if (/^[a-z0-9]{24,}$/i.test(candidate)) return `https://sketchfab.com/models/${candidate}`
-
-  const maybeUidInString = candidate.match(/[a-z0-9]{24,}/i)?.[0] ?? null
-  try {
-    const u = new URL(candidate)
-    const parts = u.pathname.split('/').filter(Boolean)
-    const idx = parts.indexOf('models')
-    if (idx >= 0 && parts[idx + 1] && /^[a-z0-9]{20,}$/i.test(parts[idx + 1])) {
-      return `https://sketchfab.com/models/${parts[idx + 1]}`
-    }
-    const last = parts[parts.length - 1] || ''
-    const slugUid = last.replace(/.*-/, '')
-    if (/^[a-z0-9]{20,}$/i.test(slugUid)) {
-      return `https://sketchfab.com/models/${slugUid}`
-    }
-    const qUid = u.searchParams.get('model')
-    if (qUid && /^[a-z0-9]{20,}$/i.test(qUid)) {
-      return `https://sketchfab.com/models/${qUid}`
-    }
-    if (maybeUidInString) {
-      return `https://sketchfab.com/models/${maybeUidInString}`
-    }
-  } catch { /* not a URL */ }
-
-  return null
+function storagePathOf(a: Asset): string | null {
+  return a.url || a.path || a.storage_path || null;
 }
-
-/** Given normalized model URL or raw input → proper /embed src */
-function sketchfabEmbedSrc(input: string): string | null {
-  if (!input) return null
-  const fromIframe = input.match(/<iframe[^>]*\s+src=["']([^"']+)["']/i)?.[1]
-  const candidate = (fromIframe || input).trim()
+function derivePreviewPaths(original: string) {
+  return {
+    p480:  original.replace(/(\.[^/.]+)?$/, '-thumb-480.webp'),
+    p1920: original.replace(/(\.[^/.]+)?$/, '-preview-1920.webp'),
+  };
+}
+function getSketchfabEmbed(u?: string | null): string | null {
+  if (!u) return null;
   try {
-    const u = new URL(candidate)
-    if (/\/models\/[a-z0-9]{20,}\/embed/i.test(u.pathname)) return candidate
+    const url = new URL(u);
+    if (url.hostname.includes('sketchfab.com') && url.pathname.includes('/embed')) return url.toString();
+    const m = url.pathname.match(/\/models\/([a-z0-9]+)(?:[/?]|$)/i) || url.pathname.match(/([a-z0-9]{10,})/i);
+    const id = m?.[1];
+    if (id) return `https://sketchfab.com/models/${id}/embed`;
   } catch {}
-  const norm = normalizeSketchfabUrl(candidate)
-  if (!norm) return null
-  const uid = norm.split('/').filter(Boolean).pop()
-  return uid ? `https://sketchfab.com/models/${uid}/embed?autostart=1&ui_infos=0&ui_watermark=0` : null
+  return null;
 }
 
-function extFromPath(path?: string | null): string {
-  if (!path) return ''
-  const m = path.toLowerCase().match(/\.([a-z0-9]+)(?:\?.*)?$/)
-  return m?.[1] || ''
-}
+export default function AssetCard({ asset, canEdit, className, onChanged }: Props) {
+  const [title, setTitle] = useState<string>(cleanTitle(asset));
+  const [editing, setEditing] = useState(false);
+  const [src, setSrc] = useState<string | null>(null);
+  const triedRef = useRef<{ public480?: boolean; public1920?: boolean; transform?: boolean; raw?: boolean }>({});
 
-function guessMime(storagePath?: string | null, provided?: string | null): string {
-  if (provided) return provided
-  const ext = extFromPath(storagePath)
-  if (['jpg','jpeg','png','gif','webp','tif','tiff'].includes(ext)) return `image/${ext === 'jpg' ? 'jpeg' : ext}`
-  if (['mp4','webm','mov','m4v','ogv'].includes(ext)) return `video/${ext}`
-  if (ext === 'pdf') return 'application/pdf'
-  return 'application/octet-stream'
-}
+  const originalPath = useMemo(() => storagePathOf(asset), [asset]);
+  const previews = useMemo(
+    () => (originalPath ? derivePreviewPaths(originalPath) : null),
+    [originalPath]
+  );
 
-export default function AssetCard({ title, kind, mime, storagePath, sketchfabUrl }: Props) {
-  const [signedUrl, setSignedUrl] = useState<string | null>(null)
-  const normalizedSketchfab = useMemo(() => (sketchfabUrl ? normalizeSketchfabUrl(sketchfabUrl) : null), [sketchfabUrl])
-  const embedSrc = useMemo(() => (normalizedSketchfab ? sketchfabEmbedSrc(normalizedSketchfab) : null), [normalizedSketchfab])
+  const isModel = asset.kind === 'model';
+  const sketchEmbed = useMemo(
+    () => getSketchfabEmbed(asset.public_url || asset.url || undefined),
+    [asset.public_url, asset.url]
+  );
 
-  const finalMime = useMemo(() => guessMime(storagePath, mime || null), [storagePath, mime])
-  const isImage = finalMime.startsWith('image/')
-  const isVideo = finalMime.startsWith('video/')
-  const isPdf   = finalMime === 'application/pdf'
-
-  // Get a short-lived URL for storage files
+  // Load in order: public 480 → public 1920 → transformed signed → raw signed
   useEffect(() => {
-    let alive = true
-    async function go() {
-      if (!storagePath) return
-      const res = await fetch(`/api/signed-url?path=${encodeURIComponent(storagePath)}`)
-      const j = await res.json().catch(() => ({}))
-      if (alive) setSignedUrl(j?.url || null)
-    }
-    go()
-    return () => { alive = false }
-  }, [storagePath])
+    let cancelled = false;
+    triedRef.current = {};
+    (async () => {
+      if (!originalPath || isModel) { setSrc(null); return; }
 
-  // Sketchfab embed takes precedence if present
-  if (normalizedSketchfab) {
-    return (
-      <div className="rounded-xl border p-4 bg-white space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="font-medium">{title}</div>
-          {kind && <div className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700">{kind}</div>}
-        </div>
-        {embedSrc ? (
-          <div className="aspect-video w-full overflow-hidden rounded-lg">
-            <iframe
-              title={title}
-              src={embedSrc}
-              allow="autoplay; fullscreen; xr-spatial-tracking"
-              allowFullScreen
-              className="h-full w-full border-0"
-            />
+      // (1) PUBLIC 480 (instant CDN)
+      if (previews && !triedRef.current.public480) {
+        triedRef.current.public480 = true;
+        const pub = supabase.storage.from(BUCKET_PREVIEWS).getPublicUrl(previews.p480).data.publicUrl;
+        if (pub && !cancelled) { setSrc(pub); return; }
+      }
+
+      // (2) PUBLIC 1920
+      if (previews && !triedRef.current.public1920) {
+        triedRef.current.public1920 = true;
+        const pub = supabase.storage.from(BUCKET_PREVIEWS).getPublicUrl(previews.p1920).data.publicUrl;
+        if (pub && !cancelled) { setSrc(pub); return; }
+      }
+
+      // (3) Signed transform (fast-ish)
+      if (!triedRef.current.transform) {
+        triedRef.current.transform = true;
+        const { data } = await supabase.storage
+          .from(BUCKET_ORIGINALS)
+          .createSignedUrl(originalPath, 60 * 60 * 24 * 7, {
+            transform: { width: 1600, quality: 75, format: 'webp', resize: 'contain' },
+          });
+        if (!cancelled && data?.signedUrl) { setSrc(data.signedUrl); return; }
+      }
+
+      // (4) Raw signed
+      if (!triedRef.current.raw) {
+        triedRef.current.raw = true;
+        const { data } = await supabase.storage
+          .from(BUCKET_ORIGINALS)
+          .createSignedUrl(originalPath, 60 * 60 * 24 * 7);
+        if (!cancelled && data?.signedUrl) { setSrc(data.signedUrl); return; }
+      }
+
+      if (!cancelled) setSrc(null);
+    })();
+    return () => { cancelled = true; };
+  }, [originalPath, previews, isModel]);
+
+  function handleImgError() {
+    // If 480 failed, try 1920; else try transform; else raw; else give up.
+    (async () => {
+      if (!originalPath) return;
+
+      if (src && previews && src.includes('-thumb-480.webp') && !triedRef.current.public1920) {
+        triedRef.current.public1920 = true;
+        const pub = supabase.storage.from(BUCKET_PREVIEWS).getPublicUrl(previews.p1920).data.publicUrl;
+        if (pub) { setSrc(pub); return; }
+      }
+      if (!triedRef.current.transform) {
+        triedRef.current.transform = true;
+        const { data } = await supabase.storage
+          .from(BUCKET_ORIGINALS)
+          .createSignedUrl(originalPath, 60 * 60 * 24 * 7, {
+            transform: { width: 1600, quality: 75, format: 'webp', resize: 'contain' },
+          });
+        if (data?.signedUrl) { setSrc(data.signedUrl); return; }
+      }
+      if (!triedRef.current.raw) {
+        triedRef.current.raw = true;
+        const { data } = await supabase.storage
+          .from(BUCKET_ORIGINALS)
+          .createSignedUrl(originalPath, 60 * 60 * 24 * 7);
+        if (data?.signedUrl) { setSrc(data.signedUrl); return; }
+      }
+      setSrc(null);
+    })();
+  }
+
+  async function saveTitle() {
+    const t = title.trim();
+    setEditing(false);
+    if (!t || t === (asset.title ?? '')) return;
+    const { error } = await supabase.from('assets').update({ title: t }).eq('id', asset.id);
+    if (error) { setTitle(cleanTitle(asset)); console.error('Rename failed:', error); }
+    else onChanged?.();
+  }
+
+  async function onDownload() {
+    const path = originalPath;
+    if (!path) return;
+    const fileName = (asset.title && asset.title.trim()) || path.split('/').pop() || 'download';
+    const { data } = await supabase.storage.from(BUCKET_ORIGINALS).createSignedUrl(path, 60, { download: fileName });
+    if (!data?.signedUrl) return;
+    const a = document.createElement('a');
+    a.href = data.signedUrl; a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  return (
+    <div className={['group relative rounded-2xl border border-gray-200 bg-white','shadow-md hover:shadow-xl transition-shadow duration-200','overflow-hidden',className||''].join(' ')}>
+      {/* Header */}
+      <div className="flex items-center gap-2 p-3">
+        {editing ? (
+          <input
+            className="min-w-0 flex-1 rounded-md border px-2 py-1 text-sm"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={saveTitle}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            autoFocus
+          />
+        ) : (
+          <div className="min-w-0 flex-1 truncate font-medium">{title}</div>
+        )}
+        <span className="rounded-full border px-2 py-0.5 text-[11px] text-gray-600 bg-gray-50">
+          {asset.kind ?? 'asset'}
+        </span>
+        {canEdit && !editing && (
+          <button aria-label="Rename" title="Rename" className="rounded p-1 hover:bg-gray-100" onClick={() => setEditing(true)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-gray-600">
+              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM21.41 6.34a1.25 1.25 0 0 0 0-1.77l-2-2a1.25 1.25 0 0 0-1.77 0l-1.83 1.83 3.75 3.75 1.85-1.81z"/>
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {/* Media */}
+      <div className="relative">
+        {isModel && sketchEmbed ? (
+          <div className="aspect-[16/9] w-full bg-gray-100">
+            <iframe className="h-full w-full" src={sketchEmbed} title={title} frameBorder={0} allow="autoplay; fullscreen; xr-spatial-tracking" allowFullScreen />
           </div>
         ) : (
-          <div className="text-sm text-red-600">
-            Couldn’t parse Sketchfab URL.{' '}
-            <a href={normalizedSketchfab} target="_blank" className="text-blue-600 underline">Open on Sketchfab</a>
+          <div className="bg-gray-100">
+            <div className="aspect-[16/9] w-full">
+              {src ? (
+                <img
+                  src={src}
+                  alt={title}
+                  className="h-full w-full object-contain bg-white"
+                  loading="lazy"
+                  decoding="async"
+                  onError={handleImgError}
+                />
+              ) : (
+                <div className="h-full w-full animate-pulse bg-gray-100" />
+              )}
+            </div>
           </div>
         )}
       </div>
-    )
-  }
 
-  // File previews (Storage)
-  return (
-    <div className="rounded-xl border p-4 bg-white space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="font-medium">{title}</div>
-        <div className="text-xs text-gray-600">{kind || finalMime}</div>
+      {/* Footer */}
+      <div className="flex items-center gap-2 p-3">
+        {originalPath && (
+          <button onClick={onDownload} className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700">
+            Download
+          </button>
+        )}
+        {!!asset.progress_group && (
+          <span className="ml-auto rounded-md border px-2 py-0.5 text-[11px] text-gray-600 bg-gray-50">
+            {asset.progress_group}
+          </span>
+        )}
       </div>
-
-      {isImage && signedUrl && (
-        <img src={signedUrl} alt={title} className="max-h-[60vh] w-auto rounded-lg border" />
-      )}
-
-      {isVideo && signedUrl && (
-        <video src={signedUrl} controls className="w-full rounded-lg border" />
-      )}
-
-      {isPdf && signedUrl && (
-        <div className="aspect-[4/3] w-full overflow-hidden rounded-lg border">
-          <iframe src={signedUrl} className="h-full w-full border-0" />
-        </div>
-      )}
-
-      {(!signedUrl && storagePath) && (
-        <div className="text-sm text-gray-600">Generating link…</div>
-      )}
-
-      {signedUrl && !isImage && !isVideo && !isPdf && (
-        <a
-          href={signedUrl}
-          target="_blank"
-          className="inline-block rounded-md bg-gray-900 px-3 py-2 text-white text-sm"
-        >
-          Download / Open
-        </a>
-      )}
     </div>
-  )
+  );
 }
 

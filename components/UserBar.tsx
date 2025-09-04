@@ -1,55 +1,66 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useMemo } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr';
-import { useSupabaseSession } from '@/app/hooks/useSupabaseSession';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function UserBar() {
-  // Your hook (may or may not include supabase depending on your local file)
-  const ctx = useSupabaseSession();
+  const [email, setEmail] = useState<string | null>(null);
   const router = useRouter();
-  const pathname = usePathname();
 
-  // Fallback: if ctx.supabase is undefined, create a browser client here
-  const supa = useMemo(() => {
-    if ((ctx as any)?.supabase) return (ctx as any).supabase;
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    return createBrowserClient(url, key);
-  }, [ctx]);
+  useEffect(() => {
+    let mounted = true;
 
-  const session = (ctx as any)?.session ?? null;
-  const user = (ctx as any)?.user ?? null;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (mounted) setEmail(data.user?.email ?? null);
+    })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setEmail(session?.user?.email ?? null);
+    });
+
+    return () => {
+      mounted = false;
+      // both shapes across SDK versions
+      // @ts-ignore
+      sub?.subscription?.unsubscribe?.();
+      // @ts-ignore
+      sub?.unsubscribe?.();
+    };
+  }, []);
 
   async function logout() {
-    // Protect against missing envs in dev
-    if (!supa) return;
-    await supa.auth.signOut();
-    router.push('/login');
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      router.push('/login');
+    }
   }
 
   return (
-    <nav className="userbar flex items-center justify-end gap-3">
-      {session ? (
+    <div className="flex items-center gap-2 text-sm">
+      {email ? (
         <>
-          <span className="text-sm">{user?.email ?? 'Signed in'}</span>
+          <span className="hidden sm:inline text-gray-700">{email}</span>
           <button
             onClick={logout}
-            className="px-3 py-1 rounded bg-red-500 text-white hover:bg-red-600"
+            className="rounded-md border px-2 py-1 hover:bg-gray-50"
+            title="Sign out"
           >
-            Log out
+            Logout
           </button>
         </>
       ) : (
         <Link
-          href={`/login?next=${encodeURIComponent(pathname || '/')}`}
-          className="px-3 py-1 rounded bg-blue-500 text-white hover:bg-blue-600"
+          href="/login"
+          className="rounded-md bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5"
         >
-          Log in
+          Login
         </Link>
       )}
-    </nav>
+    </div>
   );
 }
+

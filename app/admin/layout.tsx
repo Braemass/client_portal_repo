@@ -1,54 +1,27 @@
-'use client'
+import type { ReactNode } from 'react';
+import Link from 'next/link';
+import UserBar from '@/components/UserBar';
 
-import { useEffect } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { useSupabaseSession } from '@/app/hooks/useSupabaseSession' // <-- Option A hook
-
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const { session, loading } = useSupabaseSession()
-
-  // Redirect to login if not authenticated
-  useEffect(() => {
-    if (!loading && !session) {
-      const from = encodeURIComponent(pathname || '/admin')
-      router.replace(`/login?from=${from}`)
-    }
-  }, [loading, session, pathname, router])
-
-  // While checking auth, or after triggering redirect
-  if (loading || !session) {
-    return (
-      <main className="min-h-screen grid place-items-center p-6">
-        <div className="text-gray-600">Checking access…</div>
-      </main>
-    )
-  }
-
-  // Authenticated layout shell for all /admin/* pages
+export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
-    <main className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b">
-        <div className="mx-auto max-w-6xl px-4 py-3 flex items-center gap-4">
-          <Link href="/admin" className="font-semibold">Admin</Link>
-          <nav className="flex items-center gap-3 text-sm text-gray-700">
-            <Link href="/admin/projects">Projects</Link>
-            <Link href="/admin/clients">Clients</Link>
-            <Link href="/admin/upload">Upload</Link>
-            <Link href="/admin/invoices">Invoices</Link>
+    <div className="min-h-screen">
+      {/* Top admin nav */}
+      <header className="sticky top-0 z-30 border-b bg-white/80 backdrop-blur">
+        <div className="mx-auto max-w-6xl h-12 sm:h-14 px-4 flex items-center justify-between">
+          <nav className="flex items-center gap-4 text-sm">
+            <Link href="/admin" className="font-semibold hover:opacity-80">Admin</Link>
+            <Link href="/admin/projects" className="hover:opacity-80">Projects</Link>
+            <Link href="/admin/clients" className="hover:opacity-80">Clients</Link>
+            <Link href="/admin/upload" className="hover:opacity-80">Upload</Link>
+            <Link href="/admin/invoices" className="hover:opacity-80">Invoices</Link>
           </nav>
-          <div className="ml-auto text-sm text-gray-600">
-            {session.user?.email}
-          </div>
+          <UserBar />
         </div>
       </header>
 
-      <section className="mx-auto max-w-6xl px-4 py-6">
-        {children}
-      </section>
-    </main>
-  )
+      {/* Page content */}
+      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+    </div>
+  );
 }
 
