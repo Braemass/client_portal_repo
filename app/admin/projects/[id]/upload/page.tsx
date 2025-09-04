@@ -1,23 +1,24 @@
 // app/admin/projects/[id]/upload/page.tsx
 import AssetCard, { type Asset } from '@/components/AssetCard';
+import type { Metadata } from 'next';
 
-type PageProps = {
-  params: { id: string };
-  searchParams?: Record<string, string | string[] | undefined>;
-};
+type RouteParams = { id: string };
 
-// ✅ App Router requires a default export that is a React component (can be async).
-export default async function UploadPage({ params }: PageProps) {
-  const { id } = params;
+// ✅ In Next 15, the inferred page prop type uses a Promise for `params`.
+// Making the component `async` and awaiting `params` satisfies the constraint.
+export default async function UploadPage({
+  params,
+}: {
+  params: Promise<RouteParams>;
+}) {
+  const { id } = await params;
 
-  // TODO: replace this with real data fetch for project assets.
-  // Keeping a safe demo asset so the page compiles & renders on Vercel.
+  // Demo asset so the page renders; replace with your real data/uploader
   const demoAsset: Asset = {
-    id: 'demo-' + id,
+    id: `demo-${id}`,
     title: 'Upload Preview',
     kind: 'image',
     url: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=1200&q=80',
-    is_progress: false,
   };
 
   return (
@@ -30,11 +31,10 @@ export default async function UploadPage({ params }: PageProps) {
           Upload files for <span className="text-brand-teal">StrandAerial</span>
         </h1>
         <p className="mt-1 text-sm text-black/60 dark:text-white/70">
-          This page now exports a valid component. Replace the demo below with your real uploader and list.
+          Page exports a valid component and awaits Next 15’s async params.
         </p>
       </header>
 
-      {/* Replace with your uploader UI */}
       <section className="grid grid-cols-1 gap-6 sm:grid-cols-2">
         <AssetCard asset={demoAsset} canEdit />
       </section>
@@ -42,8 +42,12 @@ export default async function UploadPage({ params }: PageProps) {
   );
 }
 
-// (Optional) Nice page title for the tab
-export async function generateMetadata({ params }: PageProps) {
-  return { title: `Upload | Project ${params.id} • StrandAerial` };
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<RouteParams>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  return { title: `Upload | Project ${id} • StrandAerial` };
 }
 
