@@ -31,7 +31,6 @@ export default function AdminInvoices() {
         .select('id,title')
 
       if (!projectsError && projectsData) {
-        // ✅ Explicitly type rows + callback param to satisfy TS
         const map = Object.fromEntries(
           (projectsData as Project[]).map((p: Project) => [p.id, p])
         ) as Record<string, Project>
@@ -48,7 +47,8 @@ export default function AdminInvoices() {
       const { data, error } = await supabase
         .from('invoices')
         .select('id, project_id, status, amount_cents, stripe_invoice_url, due_date')
-        .order('due_date', { ascending: true, nullsLast: true })
+        // v2: use nullsFirst (false => nulls last) or omit it
+        .order('due_date', { ascending: true, nullsFirst: false })
 
       if (error) setErr(error.message)
       setRows((data || []) as Invoice[])
@@ -114,7 +114,9 @@ export default function AdminInvoices() {
                   className="flex items-center justify-between rounded-xl border bg-white p-4"
                 >
                   <div>
-                    <div className="font-medium">${amount} • {status || 'UNKNOWN'}</div>
+                    <div className="font-medium">
+                      ${amount} • {status || 'UNKNOWN'}
+                    </div>
                     <div className="text-sm text-gray-500">
                       Project:{' '}
                       {pr ? (
