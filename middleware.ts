@@ -36,12 +36,14 @@ export async function middleware(req: NextRequest) {
     path.startsWith('/robots.txt') ||
     path.startsWith('/sitemap.xml');
 
+  // Require auth for everything except login and public assets
   if (!user && !isAuth && !isPublicAsset) {
     const loginUrl = new URL('/login', req.url);
     loginUrl.searchParams.set('next', url.pathname + url.search);
     return NextResponse.redirect(loginUrl);
   }
 
+  // Restrict non-admins to /profile (and auth/public assets)
   if (user) {
     const adminList = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
       .toLowerCase()
@@ -52,9 +54,15 @@ export async function middleware(req: NextRequest) {
     const isAdmin = user.email ? adminList.includes(user.email.toLowerCase()) : false;
 
     if (!isAdmin) {
-      // only allow profile, auth, and public assets
-      const allowedPrefixes = ['/profile', '/auth', '/_next', '/favicon', '/images', '/icons'];
-      const allowed = allowedPrefixes.some((p) => path.startsWith(p)) || path === '/';
+      const allowed =
+        path === '/' ||
+        path.startsWith('/profile') ||
+        path.startsWith('/auth') ||
+        path.startsWith('/_next') ||
+        path.startsWith('/favicon') ||
+        path.startsWith('/images') ||
+        path.startsWith('/icons');
+
       if (!allowed) {
         const profileUrl = new URL('/profile', req.url);
         return NextResponse.redirect(profileUrl);

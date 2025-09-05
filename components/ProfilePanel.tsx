@@ -60,7 +60,6 @@ export default function ProfilePanel({
         avatar_url = data?.publicUrl;
       }
 
-      // prefer writing to clients; fall back to profiles if needed
       const updates: any = { name, company, phone };
       if (avatar_url) updates.avatar_url = avatar_url;
 
@@ -187,7 +186,7 @@ export default function ProfilePanel({
             {projects.map((p) => (
               <Link
                 key={p.id}
-                href={`/admin/projects/${p.id}`} // if you want a read-only client view, change this route
+                href={`/admin/projects/${p.id}`} // change if you create client-facing routes
                 className="group block overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-md transition-shadow duration-200 hover:shadow-xl"
               >
                 <div className="p-4">

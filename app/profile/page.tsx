@@ -13,21 +13,21 @@ export default async function ProfilePage() {
   let client: any = null;
 
   // prefer clients table
-  const { data: cRows, error: cErr } = await supabase
+  const { data: cRows } = await supabase
     .from('clients')
     .select('id,name,company,email,phone,avatar_url,created_at')
     .eq('email', email)
     .limit(1);
-  if (!cErr && cRows && cRows.length) client = cRows[0];
+  if (cRows && cRows.length) client = cRows[0];
 
   // fallback to profiles
   if (!client) {
-    const { data: p, error: pErr } = await supabase
+    const { data: p } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', session.user.id)
       .maybeSingle();
-    if (!pErr && p) {
+    if (p) {
       client = {
         id: p.id,
         name: p.full_name ?? p.name ?? p.username ?? p.email ?? 'User',
@@ -41,8 +41,11 @@ export default async function ProfilePage() {
   }
 
   if (!client) {
-    // ensure the row exists so the page can show something
-    await supabase.from('clients').upsert({ email, name: session.user.user_metadata?.full_name ?? null }).select().maybeSingle();
+    await supabase
+      .from('clients')
+      .upsert({ email, name: session.user.user_metadata?.full_name ?? null })
+      .select()
+      .maybeSingle();
     const { data: refetch } = await supabase
       .from('clients')
       .select('id,name,company,email,phone,avatar_url,created_at')
@@ -51,7 +54,6 @@ export default async function ProfilePage() {
     client = (refetch && refetch[0]) || { id: session.user.id, email };
   }
 
-  // fetch projects by client_id
   const { data: projects } = await supabase
     .from('projects')
     .select('id,title,status,created_at')

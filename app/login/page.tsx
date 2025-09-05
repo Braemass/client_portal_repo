@@ -7,7 +7,6 @@ import { getSupabaseBrowser } from '@/lib/supabaseClient';
 
 type Mode = 'signin' | 'signup';
 
-/** --- Inner component uses useSearchParams --- */
 function LoginInner() {
   const supabase = getSupabaseBrowser();
   const router = useRouter();
@@ -26,10 +25,17 @@ function LoginInner() {
   useEffect(() => setEmail(invitedEmail), [invitedEmail]);
 
   const title = useMemo(
-    () =>
-      mode === 'signup' ? 'Create your password' : 'Sign in',
+    () => (mode === 'signup' ? 'Create your password' : 'Sign in'),
     [mode]
   );
+
+  async function syncServerSession(event: 'SIGNED_IN' | 'SIGNED_OUT', session?: any) {
+    await fetch('/auth/callback', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ event, session }),
+    });
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,17 +43,24 @@ function LoginInner() {
     setBusy(true);
 
     if (mode === 'signup') {
-      // invite-only signup (no "Create" toggle on UI; only via invite link)
+      // Invite-only signup (only shown when URL has ?mode=signup&email=...)
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) setError(error.message);
       else {
-        if (data.session) router.replace(next);
-        else setError('Check your email to confirm your account, then sign in.');
+        if (data.session) {
+          await syncServerSession('SIGNED_IN', data.session);
+          router.replace(next);
+        } else {
+          setError('Check your email to confirm your account, then sign in.');
+        }
       }
     } else {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) setError(error.message);
-      else if (data.session) router.replace(next);
+      else if (data.session) {
+        await syncServerSession('SIGNED_IN', data.session);
+        router.replace(next);
+      }
     }
     setBusy(false);
   }
@@ -69,7 +82,7 @@ function LoginInner() {
             <div className="pointer-events-none absolute -top-20 -left-20 h-72 w-72 rounded-full bg-brand-teal/20 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-20 -right-20 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl" />
             <div className="relative z-10 space-y-4">
-              <div className="text-sm uppercase tracking-widest text-white/60">Client Portal</div>
+              <div className="text-sm uppercase tracking-widest text-white/60">Client Portal • StrandAerial</div>
               <h1 className="font-display text-4xl leading-tight">
                 Welcome to <span className="text-brand-teal">StrandAerial</span>
               </h1>
@@ -156,7 +169,6 @@ function LoginInner() {
   );
 }
 
-/** Suspense wrapper for useSearchParams */
 export default function LoginPage() {
   return (
     <Suspense
