@@ -1,10 +1,11 @@
-// app/auth/callback/route.ts
+export const runtime = 'nodejs';
+
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 
-function createClient() {
-  const cookieStore = cookies();
+async function createClient() {
+  const cookieStore = await cookies(); // ← Next 15: cookies() is async in route handlers
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -22,17 +23,19 @@ function createClient() {
   );
 }
 
+// OAuth callback (e.g., Google)
 export async function GET(req: Request) {
+  const supabase = await createClient();
   const { searchParams } = new URL(req.url);
   const next = searchParams.get('next') || '/profile';
-  const supabase = createClient();
 
   await supabase.auth.exchangeCodeForSession();
   return NextResponse.redirect(new URL(next, req.url));
 }
 
+// Client-side session sync after password sign-in/out
 export async function POST(req: Request) {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { event, session } = await req.json();
 
   if (event === 'SIGNED_OUT') {
