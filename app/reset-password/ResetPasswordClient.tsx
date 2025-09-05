@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
 
-// Create a browser Supabase client for this component
+// Browser Supabase client
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -22,15 +22,15 @@ export default function ResetPasswordClient() {
 
   // Supabase recovery links include ?code=...
   useEffect(() => {
-    const code = sp.get('code');
+    const code = sp.get('code') ?? '';
     (async () => {
       try {
         if (code) {
-          // Exchange email link code for a session
-          const { error } = await supabase.auth.exchangeCodeForSession({ code });
+          // ✅ Pass a string, not an object
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
 
-          // (Optional) Tell the server to sync cookies
+          // (Optional) Tell the server to sync auth cookies
           const { data } = await supabase.auth.getSession();
           if (data.session) {
             await fetch('/auth/callback', {
@@ -40,7 +40,6 @@ export default function ResetPasswordClient() {
             });
           }
         } else {
-          // No code found in URL
           setErr('This reset link is missing or expired. Please request a new one.');
         }
       } catch (e: any) {
@@ -64,7 +63,6 @@ export default function ResetPasswordClient() {
       const { error } = await supabase.auth.updateUser({ password: pw1 });
       if (error) throw error;
 
-      // Go to profile after success
       router.replace('/profile');
     } catch (e: any) {
       setErr(e?.message ?? 'Failed to set your new password.');
