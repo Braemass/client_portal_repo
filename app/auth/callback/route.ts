@@ -1,3 +1,4 @@
+// app/auth/callback/route.ts
 export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
@@ -5,7 +6,7 @@ import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 
 async function createClient() {
-  const cookieStore = await cookies(); // ← Next 15: cookies() is async in route handlers
+  const cookieStore = await cookies(); // Next 15: async in route handlers
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -29,7 +30,9 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const next = searchParams.get('next') || '/profile';
 
-  await supabase.auth.exchangeCodeForSession();
+  // ✅ pass the request URL so the helper can read ?code & ?state
+  await supabase.auth.exchangeCodeForSession(req.url);
+
   return NextResponse.redirect(new URL(next, req.url));
 }
 
