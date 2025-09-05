@@ -10,7 +10,7 @@ export default function ProjectPageClient({ id }: { id: string }) {
     url?: string;
   };
 
-  // --- Demo data (replace with your real project assets) ---------------------
+  // Demo data — replace with real project assets
   const [assets] = useState<Asset[]>([
     {
       key: 'a',
@@ -32,18 +32,18 @@ export default function ProjectPageClient({ id }: { id: string }) {
     },
   ]);
 
-  // --- Typed map of refs so TS is happy -------------------------------------
+  // Typed map of refs (TS-safe)
   const largeRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // Stable setter that RETURNS VOID (React ref callbacks must not return the element)
+  // Stable setter that returns void (required for React ref callbacks)
   const setLargeRef = useCallback(
     (key: string) => (el: HTMLDivElement | null) => {
-      largeRefs.current[key] = el; // assign only; no return
+      largeRefs.current[key] = el;
     },
     []
   );
 
-  // Example “highlight” logic (swap with your real state if needed)
+  // Example highlight logic; swap with your own if needed
   const highlightedKey = useMemo<string | null>(() => null, []);
 
   return (
@@ -56,7 +56,7 @@ export default function ProjectPageClient({ id }: { id: string }) {
           Strand<span className="text-brand-teal">Aerial</span> — Project Details
         </h1>
         <p className="mt-1 text-sm text-black/60 dark:text-white/70">
-          Ref callbacks fixed (return void) and ref maps typed. Replace the demo assets with your real data.
+          Ref callbacks are fixed (return void) and ref maps are typed. Replace the demo assets with your real data.
         </p>
       </header>
 
@@ -67,7 +67,7 @@ export default function ProjectPageClient({ id }: { id: string }) {
             <div
               key={`large-${asset.key}`}
               id={`asset-${asset.key}`}
-              ref={setLargeRef(asset.key)} {/* ✅ returns void */}
+              ref={setLargeRef(asset.key)}
               className={`mx-auto max-w-5xl scroll-mt-24 transition-shadow ${
                 isHighlighted ? 'rounded-2xl ring-2 ring-blue-500 shadow-md' : ''
               }`}
