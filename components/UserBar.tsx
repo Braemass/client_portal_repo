@@ -1,63 +1,64 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function UserBar() {
   const [email, setEmail] = useState<string | null>(null);
-  const router = useRouter();
 
   useEffect(() => {
     let mounted = true;
 
+    // Initial session (typed + awaited)
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (mounted) setEmail(data.user?.email ?? null);
+      const { data } = await supabase.auth.getSession();
+      if (!mounted) return;
+      setEmail(data.session?.user?.email ?? null);
     })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setEmail(session?.user?.email ?? null);
-    });
+    // Typed auth listener + cleanup
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        if (!mounted) return;
+        setEmail(session?.user?.email ?? null);
+      }
+    );
 
     return () => {
       mounted = false;
-      // both shapes across SDK versions
-      // @ts-ignore
-      sub?.subscription?.unsubscribe?.();
-      // @ts-ignore
-      sub?.unsubscribe?.();
+      subscription?.unsubscribe();
     };
   }, []);
 
-  async function logout() {
-    try {
-      await supabase.auth.signOut();
-    } finally {
-      router.push('/login');
-    }
-  }
-
   return (
-    <div className="flex items-center gap-2 text-sm">
+    <div className="flex items-center gap-3">
       {email ? (
         <>
-          <span className="hidden sm:inline text-gray-700">{email}</span>
-          <button
-            onClick={logout}
-            className="rounded-md border px-2 py-1 hover:bg-gray-50"
-            title="Sign out"
+          <span className="text-sm text-black/70 dark:text-white/70">{email}</span>
+          <form
+            action={async () => {
+              await supabase.auth.signOut();
+              setEmail(null);
+            }}
           >
-            Logout
-          </button>
+            <button
+              type="submit"
+              className="rounded-md border px-3 py-1 text-sm hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              Sign out
+            </button>
+          </form>
         </>
       ) : (
         <Link
           href="/login"
-          className="rounded-md bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5"
+          className="rounded-md bg-brand-teal px-3 py-1 text-sm text-white hover:opacity-90"
         >
-          Login
+          Sign in
         </Link>
       )}
     </div>
