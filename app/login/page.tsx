@@ -13,10 +13,9 @@ function LoginInner() {
   const router = useRouter();
   const qp = useSearchParams();
 
-  // read query params
   const invitedEmail = qp.get('email') ?? '';
   const initialMode: Mode = (qp.get('mode') as Mode) === 'signup' ? 'signup' : 'signin';
-  const next = qp.get('next') || '/projects';
+  const next = qp.get('next') || '/profile';
 
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState(invitedEmail);
@@ -27,7 +26,8 @@ function LoginInner() {
   useEffect(() => setEmail(invitedEmail), [invitedEmail]);
 
   const title = useMemo(
-    () => (mode === 'signup' ? 'Create your account' : 'Sign in'),
+    () =>
+      mode === 'signup' ? 'Create your password' : 'Sign in',
     [mode]
   );
 
@@ -37,6 +37,7 @@ function LoginInner() {
     setBusy(true);
 
     if (mode === 'signup') {
+      // invite-only signup (no "Create" toggle on UI; only via invite link)
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) setError(error.message);
       else {
@@ -51,25 +52,33 @@ function LoginInner() {
     setBusy(false);
   }
 
+  async function signInWithGoogle() {
+    setError(null);
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}` },
+    });
+  }
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#0E1B2B] via-[#0a1424] to-[#08101d] text-white">
       <div className="mx-auto flex min-h-screen max-w-7xl items-center justify-center p-6">
         <div className="grid w-full max-w-5xl grid-cols-1 overflow-hidden rounded-3xl border border-white/10 bg-white/5 shadow-2xl backdrop-blur md:grid-cols-2">
-          {/* Left: brand / hero */}
+          {/* Left: hero */}
           <div className="relative hidden items-center justify-center p-10 md:flex">
             <div className="pointer-events-none absolute -top-20 -left-20 h-72 w-72 rounded-full bg-brand-teal/20 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-20 -right-20 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl" />
             <div className="relative z-10 space-y-4">
+              <div className="text-sm uppercase tracking-widest text-white/60">Client Portal</div>
               <h1 className="font-display text-4xl leading-tight">
                 Welcome to <span className="text-brand-teal">StrandAerial</span>
               </h1>
               <p className="max-w-sm text-white/70">
-                Secure portal for your aerial deliverables—projects, invoices, and updates
-                in one place.
+                Secure access to your aerial deliverables—projects, invoices, and updates.
               </p>
               <ul className="mt-6 space-y-2 text-sm text-white/70">
                 <li>• Encrypted sessions with Supabase</li>
-                <li>• Client-specific access to projects</li>
+                <li>• Client-specific project access</li>
                 <li>• Update your profile anytime</li>
               </ul>
             </div>
@@ -77,38 +86,13 @@ function LoginInner() {
 
           {/* Right: form */}
           <div className="bg-white p-8 text-black dark:bg-[#0B1727] dark:text-white">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h2 className="font-display text-2xl">{title}</h2>
-                {invitedEmail && mode === 'signup' && (
-                  <p className="mt-1 text-sm text-black/60 dark:text-white/70">
-                    You were invited as <strong>{invitedEmail}</strong>.
-                  </p>
-                )}
-              </div>
-
-              <div className="inline-flex rounded-xl border border-black/10 p-1 dark:border-white/15">
-                <button
-                  onClick={() => setMode('signin')}
-                  className={`rounded-lg px-3 py-1.5 text-sm ${
-                    mode === 'signin'
-                      ? 'bg-brand-teal text-white'
-                      : 'text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/10'
-                  }`}
-                >
-                  Sign in
-                </button>
-                <button
-                  onClick={() => setMode('signup')}
-                  className={`rounded-lg px-3 py-1.5 text-sm ${
-                    mode === 'signup'
-                      ? 'bg-brand-teal text-white'
-                      : 'text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/10'
-                  }`}
-                >
-                  Create
-                </button>
-              </div>
+            <div className="mb-6">
+              <h2 className="font-display text-2xl">{title}</h2>
+              {invitedEmail && mode === 'signup' && (
+                <p className="mt-1 text-sm text-black/60 dark:text-white/70">
+                  Invitation for <strong>{invitedEmail}</strong>.
+                </p>
+              )}
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -151,20 +135,17 @@ function LoginInner() {
                 {busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}
               </button>
 
+              {/* Google sign in */}
               {mode === 'signin' && (
                 <button
                   type="button"
-                  className="w-full rounded-xl border px-4 py-2 text-sm text-black/70 hover:bg-black/5 dark:border-white/15 dark:text-white/80 dark:hover:bg-white/10"
-                  onClick={async () => {
-                    const { error } = await supabase.auth.signInWithOtp({
-                      email,
-                      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
-                    });
-                    if (error) setError(error.message);
-                    else setError('Magic link sent. Check your email.');
-                  }}
+                  onClick={signInWithGoogle}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm text-black/80 hover:bg-black/5 dark:border-white/15 dark:text-white/80 dark:hover:bg-white/10"
                 >
-                  Use magic link instead
+                  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
+                    <path fill="#EA4335" d="M12 10.2v3.6h5.1c-.2 1.2-1.6 3.6-5.1 3.6a6 6 0 1 1 0-12c1.7 0 2.9.7 3.6 1.3l2.5-2.4C16.9 2.9 14.7 2 12 2 6.9 2 2.8 6.1 2.8 11.2S6.9 20.4 12 20.4c6 0 9.2-4.2 9.2-8.1 0-.5-.1-1-.2-1.5H12z"/>
+                  </svg>
+                  Sign in with Google
                 </button>
               )}
             </form>
@@ -175,7 +156,7 @@ function LoginInner() {
   );
 }
 
-/** --- Page exports a Suspense wrapper so Next 15 is happy --- */
+/** Suspense wrapper for useSearchParams */
 export default function LoginPage() {
   return (
     <Suspense
