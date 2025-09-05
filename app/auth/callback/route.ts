@@ -10,9 +10,16 @@ function makeClient(req: NextRequest, res: NextResponse) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get: (name) => req.cookies.get(name)?.value,
-        set: (name, value, options) => res.cookies.set({ name, value, ...options }),
-        remove: (name, options) => res.cookies.set({ name, value: '', ...options, maxAge: 0 }),
+        // Read cookies from the incoming request
+        getAll() {
+          return req.cookies.getAll();
+        },
+        // Write cookies onto the response (Supabase will call this)
+        setAll(cookies) {
+          cookies.forEach(({ name, value, options }) => {
+            res.cookies.set({ name, value, ...(options ?? {}) });
+          });
+        },
       },
     }
   );
@@ -22,11 +29,11 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const next = url.searchParams.get('next') || '/profile';
 
-  // Prepare the redirect response FIRST so cookie writes land on it.
+  // Prepare redirect response first so cookie writes land on it
   const res = NextResponse.redirect(new URL(next, req.url));
   const supabase = makeClient(req, res);
 
-  // Exchange the OAuth code for session cookies
+  // Finish the OAuth flow (Google, etc.)
   const code = url.searchParams.get('code');
   if (code) {
     await supabase.auth.exchangeCodeForSession(code);
@@ -35,8 +42,8 @@ export async function GET(req: NextRequest) {
   return res;
 }
 
+// Optional: lets the client sync server cookies after email+password sign-in/sign-out
 export async function POST(req: NextRequest) {
-  // optional: keeps the server cookies in sync for sign-out from the client
   const res = NextResponse.json({ ok: true });
   const supabase = makeClient(req, res);
 
@@ -45,19 +52,16 @@ export async function POST(req: NextRequest) {
 
     if (event === 'SIGNED_OUT') {
       await supabase.auth.signOut();
-      return res;
-    }
-
-    if (session?.access_token && session?.refresh_token) {
+    } else if (session?.access_token && session?.refresh_token) {
       await supabase.auth.setSession({
         access_token: session.access_token,
         refresh_token: session.refresh_token,
       });
     }
-
-    return res;
   } catch {
-    return res;
+    // no-op
   }
+
+  return res;
 }
 
