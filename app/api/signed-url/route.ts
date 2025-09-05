@@ -1,19 +1,41 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { NextRequest, NextResponse } from 'next/server';
+import createSupabaseServerClient from '@/lib/supabaseServer';
 
-// Use service role (server-side only!)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!  // DO NOT expose this key in browser
-)
-
+/**
+ * GET /api/signed-url?bucket=deliverables&path=projects/123/IMG_001.jpg&expires=300
+ * POST { bucket, path, expires }
+ */
 export async function GET(req: NextRequest) {
-  const path = req.nextUrl.searchParams.get('path')
-  if (!path) return NextResponse.json({ error: 'missing path' }, { status: 400 })
+  const url = new URL(req.url);
+  const bucket = url.searchParams.get('bucket') || 'deliverables';
+  const path = url.searchParams.get('path');
+  const expires = Number(url.searchParams.get('expires') ?? 300);
 
-  // Create a 1-hour signed link
-  const { data, error } = await supabase.storage.from('deliverables').createSignedUrl(path, 60 * 60)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ url: data?.signedUrl })
+  if (!path) {
+    return NextResponse.json({ error: 'Missing "path" query param' }, { status: 400 });
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expires);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ signedUrl: data?.signedUrl ?? null });
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => null);
+  const bucket = body?.bucket || 'deliverables';
+  const path: string | undefined = body?.path;
+  const expires: number = Number(body?.expires ?? 300);
+
+  if (!path) {
+    return NextResponse.json({ error: 'Missing "path" in body' }, { status: 400 });
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expires);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ signedUrl: data?.signedUrl ?? null });
 }
 
