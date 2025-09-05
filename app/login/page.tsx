@@ -1,13 +1,14 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getSupabaseBrowser } from '@/lib/supabaseClient';
 
 type Mode = 'signin' | 'signup';
 
-export default function LoginPage() {
+/** --- Inner component uses useSearchParams --- */
+function LoginInner() {
   const supabase = getSupabaseBrowser();
   const router = useRouter();
   const qp = useSearchParams();
@@ -23,7 +24,6 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // keep email field synced with invite link changes
   useEffect(() => setEmail(invitedEmail), [invitedEmail]);
 
   const title = useMemo(
@@ -37,35 +37,17 @@ export default function LoginPage() {
     setBusy(true);
 
     if (mode === 'signup') {
-      // Create account with email/password (no magic link)
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        // If you keep email confirmation enabled in Supabase,
-        // session will be null and a confirmation email is sent.
-      });
-      if (error) {
-        setError(error.message);
-      } else {
-        // If email confirmations are disabled, you'll be signed in now.
-        // If confirmations are enabled, guide the user.
-        if (data.session) {
-          router.replace(next);
-        } else {
-          setError(
-            'Check your email to confirm your account, then come back and sign in.'
-          );
-        }
-      }
-    } else {
-      // Sign in with email/password
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) setError(error.message);
       else {
         if (data.session) router.replace(next);
+        else setError('Check your email to confirm your account, then sign in.');
       }
+    } else {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setError(error.message);
+      else if (data.session) router.replace(next);
     }
-
     setBusy(false);
   }
 
@@ -174,15 +156,10 @@ export default function LoginPage() {
                   type="button"
                   className="w-full rounded-xl border px-4 py-2 text-sm text-black/70 hover:bg-black/5 dark:border-white/15 dark:text-white/80 dark:hover:bg-white/10"
                   onClick={async () => {
-                    if (!email) return setError('Enter your email first.');
-                    setBusy(true);
-                    setError(null);
-                    // Optional: passwordless fallback if needed
                     const { error } = await supabase.auth.signInWithOtp({
                       email,
                       options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
                     });
-                    setBusy(false);
                     if (error) setError(error.message);
                     else setError('Magic link sent. Check your email.');
                   }}
@@ -195,6 +172,23 @@ export default function LoginPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+/** --- Page exports a Suspense wrapper so Next 15 is happy --- */
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center bg-[#0a1424] text-white">
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-6 py-4 opacity-80">
+            Loading…
+          </div>
+        </main>
+      }
+    >
+      <LoginInner />
+    </Suspense>
   );
 }
 
