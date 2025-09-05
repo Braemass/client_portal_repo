@@ -1,10 +1,10 @@
-// app/admin/clients/[id]/page.tsx
 'use client';
 
 import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
+/** ---------- Types ---------- */
 type Client = {
   id: string;
   name: string | null;
@@ -22,6 +22,7 @@ type Project = {
   created_at?: string | null;
 };
 
+/** ---------- Config ---------- */
 const SOURCE = (process.env.NEXT_PUBLIC_CLIENTS_SOURCE || 'auto').trim() as
   | 'auto'
   | 'clients'
@@ -34,8 +35,22 @@ const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
 
 const AVATARS_BUCKET = (process.env.NEXT_PUBLIC_AVATARS_BUCKET || 'avatars').trim();
 
+/** Helpers to build invite links */
+function siteUrl() {
+  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
+  if (typeof window !== 'undefined') return window.location.origin;
+  return 'http://localhost:3000';
+}
+function inviteLink(email: string, next: string) {
+  const url = new URL('/login', siteUrl());
+  url.searchParams.set('mode', 'signup');
+  url.searchParams.set('email', email);
+  url.searchParams.set('next', next);
+  return url.toString();
+}
+
 export default function ClientDetail({ params }: { params: Promise<{ id: string }> }) {
-  // Next.js 15: params is a Promise; unwrap it
+  // Next 15: params is a Promise in client components
   const { id } = use(params);
 
   const [client, setClient] = useState<Client | null>(null);
@@ -87,7 +102,6 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
       if (error) throw new Error(error.message);
       if (!data) return null;
       const r: any = data;
-      // Map safely. Only use avatar_url; DO NOT touch a non-existent "avatar" column.
       return {
         id: r.id,
         name: r.name ?? r.full_name ?? r.username ?? r.email ?? 'User',
@@ -150,7 +164,6 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
     };
   }, [id]);
 
-  // Show Edit button in dev always; in prod only for owner/admin
   const canEdit = useMemo(() => {
     const isOwner = currentUserId && client && currentUserId === client.id;
     const isAdmin = currentUserEmail && ADMIN_EMAILS.includes(currentUserEmail.toLowerCase());
@@ -182,10 +195,10 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
     try {
       let newAvatarUrl: string | undefined;
 
-      // 1) Upload avatar if chosen (to AVATARS_BUCKET)
+      // 1) Upload avatar if chosen
       if (avatarFile) {
         const ext = (avatarFile.name.split('.').pop() || 'jpg').toLowerCase();
-        const path = `${client.id}/avatar.${ext}`; // per-client folder
+        const path = `${client.id}/avatar.${ext}`;
         const { error: upErr } = await supabase
           .storage
           .from(AVATARS_BUCKET)
@@ -195,29 +208,16 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
         newAvatarUrl = pub?.publicUrl;
       }
 
-      // 2) Update row in chosen source
+      // 2) Update row
       if (SOURCE === 'clients') {
-        // Your own clients table – update all fields
         const updates: any = { name, company, email, phone };
-        if (newAvatarUrl) updates.avatar_url = newAvatarUrl; // only avatar_url
-        const { error: updErr } = await supabase
-          .from('clients')
-          .update(updates)
-          .eq('id', client.id);
+        if (newAvatarUrl) updates.avatar_url = newAvatarUrl;
+        const { error: updErr } = await supabase.from('clients').update(updates).eq('id', client.id);
         if (updErr) throw new Error(updErr.message);
       } else {
-        // public.profiles – update ONLY columns that usually exist
-        // This avoids "column not found" errors (e.g., avatar, company, phone, email often don't exist).
-        const updates: any = {
-          full_name: name || null,
-        };
-        if (newAvatarUrl) {
-          updates.avatar_url = newAvatarUrl; // keep only avatar_url
-        }
-        const { error: updErr } = await supabase
-          .from('profiles')
-          .update(updates)
-          .eq('id', client.id);
+        const updates: any = { full_name: name || null };
+        if (newAvatarUrl) updates.avatar_url = newAvatarUrl;
+        const { error: updErr } = await supabase.from('profiles').update(updates).eq('id', client.id);
         if (updErr) throw new Error(updErr.message);
       }
 
@@ -237,6 +237,9 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
     }
   }
 
+  const inviteHref =
+    client?.email ? inviteLink(client.email, `/clients/${id}`) : undefined;
+
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900">
       <div className="mx-auto max-w-6xl px-4 py-6">
@@ -244,7 +247,7 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
         <div className="mb-6 flex flex-wrap items-center gap-3">
           <Link
             href="/admin/clients"
-            className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm bg-white hover:bg-gray-50"
+            className="inline-flex items-center gap-2 rounded-md border bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
               <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
@@ -252,13 +255,47 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
             Back to Clients
           </Link>
 
-          <h1 className="text-xl sm:text-2xl font-semibold ml-1">
-            {client?.name || 'Client'}{client?.company ? ` — ${client.company}` : ''}
+          <h1 className="ml-1 text-xl font-semibold sm:text-2xl">
+            {client?.name || 'Client'}
+            {client?.company ? ` — ${client.company}` : ''}
           </h1>
 
-          {canEdit && (
-            <div className="ml-auto">
-              {!editing ? (
+          <div className="ml-auto flex items-center gap-2">
+            {client?.email && (
+              <>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!inviteHref) return;
+                    await navigator.clipboard.writeText(inviteHref);
+                    alert('Invite link copied');
+                  }}
+                  className="rounded-lg border bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
+                  title={inviteHref}
+                >
+                  Copy invite
+                </button>
+                <a
+                  className="rounded-lg bg-brand-teal px-3 py-1.5 text-sm text-white hover:opacity-90"
+                  href={`mailto:${encodeURIComponent(client.email)}?subject=${encodeURIComponent(
+                    'Your StrandAerial portal access'
+                  )}&body=${encodeURIComponent(
+                    `Hi ${client.name ?? ''},
+
+Here is your secure link to create your password and access your portal:
+${inviteHref}
+
+Thanks,
+StrandAerial`
+                  )}`}
+                >
+                  Email invite
+                </a>
+              </>
+            )}
+
+            {canEdit &&
+              (!editing ? (
                 <button
                   onClick={() => {
                     setEditing(true);
@@ -269,10 +306,10 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
                     setAvatarFile(null);
                     setAvatarPreview(null);
                   }}
-                  className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm bg-white hover:bg-gray-50"
+                  className="inline-flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm hover:bg-gray-50"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                    <path d="M3 17.25V21h3.75l11-11.03-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"/>
+                    <path d="M3 17.25V21h3.75l11-11.03-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
                   </svg>
                   Edit Profile
                 </button>
@@ -284,22 +321,21 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
                       setAvatarFile(null);
                       setAvatarPreview(null);
                     }}
-                    className="rounded-lg border px-4 py-2 text-sm bg-white hover:bg-gray-50"
+                    className="rounded-lg border bg-white px-4 py-2 text-sm hover:bg-gray-50"
                     disabled={saving}
                   >
                     Cancel
                   </button>
                   <button
                     onClick={onSave}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow"
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-blue-700"
                     disabled={saving}
                   >
                     {saving ? 'Saving…' : 'Save'}
                   </button>
                 </div>
-              )}
-            </div>
-          )}
+              ))}
+          </div>
         </div>
 
         {/* Errors */}
@@ -310,24 +346,25 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
         )}
 
         {/* Profile card */}
-        <section className="mb-8 rounded-2xl border bg-white shadow-md p-5">
+        <section className="mb-8 rounded-2xl border bg-white p-5 shadow-md">
           <div className="flex items-start gap-5">
             {/* Avatar */}
             <div className="relative">
               {avatarPreview || client?.avatar_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={avatarPreview || (client?.avatar_url as string)}
                   alt="Avatar"
                   className="h-20 w-20 rounded-full object-cover ring-2 ring-gray-200"
                 />
               ) : (
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-blue-600 text-white text-xl font-semibold">
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-blue-600 text-xl font-semibold text-white">
                   {initials}
                 </div>
               )}
 
               {canEdit && editing && (
-                <label className="mt-2 block text-xs text-blue-700 cursor-pointer">
+                <label className="mt-2 block cursor-pointer text-xs text-blue-700">
                   <input
                     type="file"
                     accept="image/*"
@@ -341,7 +378,7 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
 
             {/* Fields */}
             {!editing ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+              <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
                 <InfoRow label="Name" value={client?.name || '—'} />
                 <InfoRow label="Company" value={client?.company || '—'} />
                 <InfoRow
@@ -363,7 +400,7 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
                 />
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+              <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
                 <LabeledInput label="Name" value={name} onChange={setName} />
                 <LabeledInput label="Company" value={company} onChange={setCompany} />
                 <LabeledInput label="Email" value={email} onChange={setEmail} type="email" />
@@ -384,7 +421,7 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
           {loading ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-28 rounded-2xl border bg-white shadow-md animate-pulse" />
+                <div key={i} className="h-28 animate-pulse rounded-2xl border bg-white shadow-md" />
               ))}
             </div>
           ) : projects.length === 0 ? (
@@ -393,7 +430,7 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
               <div className="mt-3">
                 <Link
                   href={`/admin/projects/new?client=${encodeURIComponent(id)}`}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 shadow"
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-blue-700"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                     <path d="M11 11V5h2v6h6v2h-6v6h-2v-6H5v-2h6z" />
@@ -408,15 +445,13 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
                 <Link
                   key={p.id}
                   href={`/admin/projects/${p.id}`}
-                  className="group block rounded-2xl border border-gray-200 bg-white shadow-md hover:shadow-xl transition-shadow duration-200 overflow-hidden"
+                  className="group block overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-md transition-shadow duration-200 hover:shadow-xl"
                 >
                   <div className="p-4">
                     <div className="mb-1 line-clamp-1 text-base font-medium">
                       {p.title || 'Untitled Project'}
                     </div>
-                    <div className="text-xs text-gray-700">
-                      {p.status || '—'}
-                    </div>
+                    <div className="text-xs text-gray-700">{p.status || '—'}</div>
                     <div className="mt-1 text-xs text-gray-600">
                       {p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}
                     </div>
@@ -434,6 +469,7 @@ export default function ClientDetail({ params }: { params: Promise<{ id: string 
   );
 }
 
+/** ---------- Small UI helpers ---------- */
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex gap-3">
@@ -459,7 +495,7 @@ function LabeledInput({
       <div className="mb-1 text-xs uppercase tracking-wide text-gray-500">{label}</div>
       <input
         type={type}
-        className="w-full rounded-lg border px-3 py-2 bg-white"
+        className="w-full rounded-lg border bg-white px-3 py-2"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
