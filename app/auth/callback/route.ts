@@ -1,58 +1,63 @@
 // app/auth/callback/route.ts
 export const runtime = 'nodejs';
 
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-async function createClient() {
-  const cookieStore = await cookies(); // Next 15: async in route handlers
+function makeClient(req: NextRequest, res: NextResponse) {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get: (name) => cookieStore.get(name)?.value,
-        set: (name, value, options) => {
-          cookieStore.set({ name, value, ...options });
-        },
-        remove: (name, options) => {
-          cookieStore.set({ name, value: '', ...options, maxAge: 0 });
-        },
+        get: (name) => req.cookies.get(name)?.value,
+        set: (name, value, options) => res.cookies.set({ name, value, ...options }),
+        remove: (name, options) => res.cookies.set({ name, value: '', ...options, maxAge: 0 }),
       },
     }
   );
 }
 
-// OAuth callback (e.g., Google)
-export async function GET(req: Request) {
-  const supabase = await createClient();
-  const { searchParams } = new URL(req.url);
-  const next = searchParams.get('next') || '/profile';
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const next = url.searchParams.get('next') || '/profile';
 
-  // ✅ pass the request URL so the helper can read ?code & ?state
-  await supabase.auth.exchangeCodeForSession(req.url);
+  // Prepare the redirect response FIRST so cookie writes land on it.
+  const res = NextResponse.redirect(new URL(next, req.url));
+  const supabase = makeClient(req, res);
 
-  return NextResponse.redirect(new URL(next, req.url));
+  // Exchange the OAuth code for session cookies
+  const code = url.searchParams.get('code');
+  if (code) {
+    await supabase.auth.exchangeCodeForSession(code);
+  }
+
+  return res;
 }
 
-// Client-side session sync after password sign-in/out
-export async function POST(req: Request) {
-  const supabase = await createClient();
-  const { event, session } = await req.json();
+export async function POST(req: NextRequest) {
+  // optional: keeps the server cookies in sync for sign-out from the client
+  const res = NextResponse.json({ ok: true });
+  const supabase = makeClient(req, res);
 
-  if (event === 'SIGNED_OUT') {
-    await supabase.auth.signOut();
-    return NextResponse.json({ ok: true });
+  try {
+    const { event, session } = await req.json();
+
+    if (event === 'SIGNED_OUT') {
+      await supabase.auth.signOut();
+      return res;
+    }
+
+    if (session?.access_token && session?.refresh_token) {
+      await supabase.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
+    }
+
+    return res;
+  } catch {
+    return res;
   }
-
-  if (session?.access_token && session?.refresh_token) {
-    await supabase.auth.setSession({
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-    });
-  }
-
-  return NextResponse.json({ ok: true });
 }
 
