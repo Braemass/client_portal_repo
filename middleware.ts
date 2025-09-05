@@ -1,18 +1,28 @@
 // middleware.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createMiddlewareClient } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
 
 export async function middleware(req: NextRequest) {
-  // Always create a response we can mutate cookies on:
+  // Response we can mutate cookies on
   const res = NextResponse.next();
 
-  // Edge-safe Supabase client for middleware
-  const supabase = createMiddlewareClient({
-    req,
-    res,
-    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  });
+  // Supabase client for Edge middleware wired to request/response cookies
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get: (name) => req.cookies.get(name)?.value,
+        set: (name, value, options) => {
+          // Set cookie on the response so it persists after middleware
+          res.cookies.set({ name, value, ...options });
+        },
+        remove: (name, options) => {
+          res.cookies.set({ name, value: '', ...options, maxAge: 0 });
+        },
+      },
+    }
+  );
 
   const {
     data: { user },
@@ -30,14 +40,14 @@ export async function middleware(req: NextRequest) {
     path === '/robots.txt' ||
     path === '/sitemap.xml';
 
-  // If not signed in, only allow login/auth and public assets
+  // Redirect unauthenticated users to /login (preserve intended path)
   if (!user && !isAuthRoute && !isPublicAsset) {
     const loginUrl = new URL('/login', req.url);
     loginUrl.searchParams.set('next', url.pathname + url.search);
     return NextResponse.redirect(loginUrl);
   }
 
-  // Non-admins can only access /profile (+ assets/auth)
+  // Restrict non-admins to /profile (plus assets/auth)
   if (user) {
     const adminList = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
       .toLowerCase()
