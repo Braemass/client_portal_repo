@@ -1,49 +1,43 @@
-// middleware.ts
+k// middleware.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { createMiddlewareClient } from '@supabase/ssr';
 
 export async function middleware(req: NextRequest) {
+  // Always create a response we can mutate cookies on:
   const res = NextResponse.next();
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get: (name) => req.cookies.get(name)?.value,
-        set: (name, value, options) => {
-          res.cookies.set({ name, value, ...options });
-        },
-        remove: (name, options) => {
-          res.cookies.set({ name, value: '', ...options, maxAge: 0 });
-        },
-      },
-    }
-  );
+  // Edge-safe Supabase client for middleware
+  const supabase = createMiddlewareClient({
+    req,
+    res,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  });
 
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user ?? null;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const url = req.nextUrl;
   const path = url.pathname;
 
-  const isAuth = path.startsWith('/login') || path.startsWith('/auth/');
+  const isAuthRoute = path.startsWith('/login') || path.startsWith('/auth/');
   const isPublicAsset =
     path.startsWith('/_next') ||
     path.startsWith('/favicon') ||
     path.startsWith('/icons') ||
     path.startsWith('/images') ||
-    path.startsWith('/robots.txt') ||
-    path.startsWith('/sitemap.xml');
+    path === '/robots.txt' ||
+    path === '/sitemap.xml';
 
-  // Require auth for everything except login and public assets
-  if (!user && !isAuth && !isPublicAsset) {
+  // If not signed in, only allow login/auth and public assets
+  if (!user && !isAuthRoute && !isPublicAsset) {
     const loginUrl = new URL('/login', req.url);
     loginUrl.searchParams.set('next', url.pathname + url.search);
     return NextResponse.redirect(loginUrl);
   }
 
-  // Restrict non-admins to /profile (and auth/public assets)
+  // Non-admins can only access /profile (+ assets/auth)
   if (user) {
     const adminList = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
       .toLowerCase()
@@ -57,11 +51,8 @@ export async function middleware(req: NextRequest) {
       const allowed =
         path === '/' ||
         path.startsWith('/profile') ||
-        path.startsWith('/auth') ||
-        path.startsWith('/_next') ||
-        path.startsWith('/favicon') ||
-        path.startsWith('/images') ||
-        path.startsWith('/icons');
+        isAuthRoute ||
+        isPublicAsset;
 
       if (!allowed) {
         const profileUrl = new URL('/profile', req.url);
