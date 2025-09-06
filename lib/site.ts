@@ -1,33 +1,37 @@
 // lib/site.ts
 
-// Fallback to your deployed URL if nothing else is set
-const fallbackDomain =
-  'https://client-portal-repo-hs8le17ox-braedons-projects-64bd4c3a.vercel.app';
-
-// Prefer NEXT_PUBLIC_SITE_URL, then VERCEL_URL, then localhost, then fallback
-export const SITE_URL =
+/**
+ * Canonical site URL used in redirects and email templates.
+ * Priority: NEXT_PUBLIC_SITE_URL → VERCEL_URL → localhost
+ */
+export const SITE_URL: string =
   process.env.NEXT_PUBLIC_SITE_URL ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000') ||
-  fallbackDomain;
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
 
-const ensureLeadingSlash = (p: string) => (p.startsWith('/') ? p : `/${p}`);
+/**
+ * Comma-separated list of admin emails. Defaults to your email.
+ * Example env: NEXT_PUBLIC_ADMIN_EMAILS="you@domain.com,other@domain.com"
+ */
+export const ADMIN_EMAILS: string[] = (
+  process.env.NEXT_PUBLIC_ADMIN_EMAILS || 'braemass22@gmail.com'
+)
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
 
-export const absoluteUrl = (path: string) =>
-  new URL(ensureLeadingSlash(path), SITE_URL).toString();
+/** Utility to check if an email is admin */
+export const isAdminEmail = (email?: string | null): boolean =>
+  !!email && ADMIN_EMAILS.includes(email.toLowerCase());
 
-export const AUTH_CALLBACK_URL = absoluteUrl('/auth/callback');
-export const RESET_PASSWORD_URL = absoluteUrl('/reset-password');
+/** Where regular users should land after sign-in */
+export const DEFAULT_USER_REDIRECT = '/profile';
 
-export const DEFAULT_CLIENT_LANDING = '/profile';
-export const DEFAULT_ADMIN_LANDING = '/admin';
-
-export function loginUrl(params?: { email?: string; next?: string }) {
-  const url = new URL(absoluteUrl('/login'));
-  if (params?.email) url.searchParams.set('email', params.email);
-  if (params?.next) url.searchParams.set('next', params.next);
+/** Build an invite link that pre-fills the email and optional next path */
+export function inviteLink(email: string, next: string = DEFAULT_USER_REDIRECT): string {
+  const url = new URL(`${SITE_URL}/login`);
+  url.searchParams.set('prefill', email);
+  url.searchParams.set('mode', 'invite');
+  url.searchParams.set('next', next);
   return url.toString();
 }
 
-export function inviteLink(email: string, next = DEFAULT_CLIENT_LANDING) {
-  return loginUrl({ email, next });
-}

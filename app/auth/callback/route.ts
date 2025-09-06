@@ -1,51 +1,58 @@
 // app/auth/callback/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { DEFAULT_USER_REDIRECT, SITE_URL } from '@/lib/site';
 
-function makeServerClient(req: NextRequest, res: NextResponse) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return req.cookies.get(name)?.value;
-        },
-        set(name: string, value: string, options?: Parameters<typeof res.cookies.set>[2]) {
-          res.cookies.set(name, value, options);
-        },
-        remove(name: string, options?: Parameters<typeof res.cookies.set>[2]) {
-          res.cookies.set(name, '', { ...options, maxAge: 0 });
-        },
-      },
-    }
-  );
-}
+// Force Node runtime so Supabase server client works without Edge warnings
+export const runtime = 'nodejs';
 
-// Handles OAuth & email-link callbacks: .../auth/callback?code=...&next=/profile
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+/**
+ * Handles Supabase OAuth / magic-link callbacks.
+ * Exchanges ?code=... for a session and sets the auth cookies on the response.
+ * Redirects to ?next=/path or /profile by default.
+ */
 export async function GET(req: NextRequest) {
-  const res = NextResponse.next();
-  const supabase = makeServerClient(req, res);
+  const incomingUrl = new URL(req.url);
+  const code = incomingUrl.searchParams.get('code');
+  const rawNext = incomingUrl.searchParams.get('next');
+  // Only allow on-site redirects
+  const next =
+    rawNext && rawNext.startsWith('/') ? rawNext : DEFAULT_USER_REDIRECT;
 
-  const url = new URL(req.url);
-  const code = url.searchParams.get('code');
-  const next = url.searchParams.get('next') || '/profile';
+  // Default response is a redirect to the target page
+  const res = NextResponse.redirect(new URL(next, SITE_URL));
 
+  // If this is a Supabase email link, exchange code → session (sets cookies on `res`)
   if (code) {
+    const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      cookies: {
+        get: (name) => req.cookies.get(name)?.value,
+        set: (name, value, options) => res.cookies.set({ name, value, ...options }),
+        remove: (name, options) =>
+          res.cookies.set({ name, value: '', ...options, maxAge: 0 }),
+      },
+    });
+
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
-      return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(error.message)}`, req.url));
+      // If anything goes wrong, bounce back to /login with an error
+      return NextResponse.redirect(
+        new URL(`/login?error=${encodeURIComponent(error.message)}`, SITE_URL)
+      );
     }
   }
-  // now authenticated on the server — go where requested
-  return NextResponse.redirect(new URL(next, req.url), { headers: res.headers });
+
+  return res;
 }
 
-// Used after signInWithPassword so the server can store refreshed cookies
-export async function POST(req: NextRequest) {
-  const res = NextResponse.json({ ok: true });
-  const supabase = makeServerClient(req, res);
-  await supabase.auth.getSession(); // touches and sets cookies into `res`
-  return res;
+/**
+ * Optional: allow the client to "sync" auth cookies after password sign-in/out.
+ * Call with: await fetch('/auth/callback', { method: 'POST' })
+ */
+export async function POST() {
+  return NextResponse.json({ ok: true });
 }
 
