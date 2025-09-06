@@ -17,9 +17,8 @@ export const ROUTES = {
 export const ADMIN_REDIRECT = ROUTES.admin;
 export const DEFAULT_USER_REDIRECT = ROUTES.profile;
 
-// Admin emails are provided via env (comma-separated).
-// Example (.env.local or Vercel Project -> Settings -> Env Vars):
-// NEXT_PUBLIC_ADMIN_EMAILS="braemass22@gmail.com,another-admin@domain.com"
+// Admin emails via env (comma-separated).
+// Example: NEXT_PUBLIC_ADMIN_EMAILS="braemass22@gmail.com,another@domain.com"
 const adminsFromEnv = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
   .split(',')
   .map(e => e.trim().toLowerCase())
@@ -28,11 +27,14 @@ const adminsFromEnv = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
 export const ADMIN_EMAILS_ARRAY = adminsFromEnv;
 export const ADMIN_EMAILS = new Set<string>(adminsFromEnv);
 
-// Simple checker used in middleware/callback routing
+// Primary checker
 export function isAdmin(email?: string | null): boolean {
   if (!email) return false;
   return ADMIN_EMAILS.has(email.trim().toLowerCase());
 }
+
+// Alias to satisfy existing imports elsewhere (e.g., UserBarServer.tsx)
+export const isAdminEmail = (email?: string | null) => isAdmin(email);
 
 // Build an invite link that pre-fills email and optional next path
 export function inviteLink(email: string, next: string = DEFAULT_USER_REDIRECT): string {
