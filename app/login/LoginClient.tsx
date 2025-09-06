@@ -1,131 +1,144 @@
 'use client';
 
-import * as React from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { createBrowserClient } from '@supabase/ssr';
+import { isAdmin, DEFAULT_USER_REDIRECT, ROUTES, SITE_URL } from '@/lib/site';
 
-export default function LoginClient() {
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+export default function LoginClient({ prefillEmail }: { prefillEmail?: string }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const params = useSearchParams();
+  const nextParam = params.get('next') || DEFAULT_USER_REDIRECT;
 
-  const [email, setEmail] = React.useState('');
-  const [password, setPassword] = React.useState('');
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [email, setEmail] = useState(prefillEmail || params.get('email') || '');
+  const [password, setPassword] = useState('');
+  const [pending, setPending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  // Prefill email from invite link: ?email=someone@example.com
-  React.useEffect(() => {
-    const e = searchParams.get('email');
-    if (e) setEmail(e);
-  }, [searchParams]);
+  // If already signed in, bounce right away (helps CSR dev experience)
+  useEffect(() => {
+    let canceled = false;
+    supabase.auth.getUser().then(({ data }) => {
+      if (canceled) return;
+      const e = data?.user?.email || null;
+      if (e) {
+        const dest = isAdmin(e) ? ROUTES.admin : nextParam;
+        router.replace(dest);
+      }
+    });
+    return () => { canceled = true; };
+  }, [router, nextParam]);
 
-  async function handleEmailPasswordSignIn(e: React.FormEvent) {
+  const onSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setLoading(true);
+    setPending(true);
+    setErr(null);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
-      // IMPORTANT: sync server cookies so middleware sees you're logged in
+      // (Optional) hit the server to sync cookies (usually not required, but helps)
       await fetch('/auth/callback', { method: 'POST' });
 
-      router.replace('/profile');
-    } catch (err: any) {
-      setError(err?.message ?? 'Failed to sign in');
+      const dest = isAdmin(data.user?.email || '') ? ROUTES.admin : nextParam;
+      router.replace(dest);
+      router.refresh(); // make sure server sees fresh auth on first paint
+    } catch (e: any) {
+      setErr(e?.message || 'Sign-in failed');
     } finally {
-      setLoading(false);
+      setPending(false);
     }
-  }
+  };
 
-  async function handleGoogle() {
-    setError(null);
-    setLoading(true);
+  const onGoogle = async () => {
+    setPending(true);
+    setErr(null);
     try {
-      const origin = window.location.origin;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${origin}/auth/callback?next=/profile`,
+          redirectTo: `${SITE_URL}/auth/callback?next=${encodeURIComponent(nextParam)}`,
         },
       });
       if (error) throw error;
-      // The browser will navigate to Google; nothing else to do here.
-    } catch (err: any) {
-      setError(err?.message ?? 'Failed to start Google sign-in');
-      setLoading(false);
+      // Browser will leave for Google; no local redirect here.
+    } catch (e: any) {
+      setPending(false);
+      setErr(e?.message || 'Google sign-in failed');
     }
-  }
+  };
 
   return (
-    <div className="mx-auto max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h1 className="mb-1 text-center text-xl font-semibold text-slate-900">
-        Client Portal with <span className="text-sky-500">StrandAerial</span>
-      </h1>
-      <p className="mb-6 text-center text-sm text-slate-500">
-        Sign in to view your projects and profile.
+    <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-lg backdrop-blur">
+      <h1 className="mb-2 text-xl font-semibold text-slate-900">Client Portal with StrandAerial</h1>
+      <p className="mb-6 text-sm text-slate-600">
+        Sign in to access your projects. Admins are redirected to the Admin panel.
       </p>
 
-      {error && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <form onSubmit={handleEmailPasswordSignIn} className="space-y-3">
+      <form onSubmit={onSignIn} className="space-y-3">
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Email</label>
+          <label className="block text-sm font-medium text-slate-700">Email</label>
           <input
-            required
             type="email"
             autoComplete="email"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-400"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-sky-200 focus:border-sky-400 focus:ring"
-            placeholder="you@example.com"
+            required
+            placeholder="you@company.com"
           />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Password</label>
+          <label className="block text-sm font-medium text-slate-700">Password</label>
           <input
-            required
             type="password"
             autoComplete="current-password"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-400"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-sky-200 focus:border-sky-400 focus:ring"
+            required
             placeholder="••••••••"
           />
         </div>
 
+        {err && <p className="text-sm text-red-600">{err}</p>}
+
         <button
           type="submit"
-          disabled={loading}
-          className="mt-2 inline-flex w-full items-center justify-center rounded-xl bg-sky-500 px-4 py-2.5 font-semibold text-slate-900 shadow-sm transition hover:bg-sky-400 disabled:opacity-60"
+          disabled={pending}
+          className="mt-2 w-full rounded-lg bg-sky-400 px-4 py-2 font-semibold text-slate-900 hover:bg-sky-300 disabled:opacity-60"
         >
-          {loading ? 'Signing in…' : 'Sign In'}
+          {pending ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
 
       <div className="my-4 flex items-center gap-3">
         <div className="h-px flex-1 bg-slate-200" />
-        <span className="text-xs uppercase tracking-wider text-slate-400">or</span>
+        <span className="text-xs text-slate-500">or</span>
         <div className="h-px flex-1 bg-slate-200" />
       </div>
 
       <button
-        onClick={handleGoogle}
-        disabled={loading}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 font-medium text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-60"
+        onClick={onGoogle}
+        disabled={pending}
+        className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
       >
-        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-          <path fill="#FFC107" d="M43.611,20.083H24v7.834h11.303C33.963,32.676,29.441,36,24,36c-6.627,0-12-5.373-12-12 c0-6.627,5.373-12,12-12c3.059,0,5.842,1.158,7.957,3.043l5.543-5.543C33.554,6.146,28.977,4,24,4C12.955,4,4,12.955,4,24 s8.955,20,20,20s20-8.955,20-20C44,22.659,43.86,21.352,43.611,20.083z"/>
-          <path fill="#FF3D00" d="M6.306,14.691l6.437,4.719C14.31,16.094,18.855,12,24,12c3.059,0,5.842,1.158,7.957,3.043l5.543-5.543 C33.554,6.146,28.977,4,24,4C16.318,4,9.76,8.352,6.306,14.691z"/>
-          <path fill="#4CAF50" d="M24,44c5.356,0,10.229-2.053,13.9-5.411l-6.416-5.426C29.428,34.844,26.861,36,24,36 c-5.408,0-9.946-3.304-11.728-7.966l-6.39,4.927C8.271,39.558,15.536,44,24,44z"/>
-          <path fill="#1976D2" d="M43.611,20.083H24v7.834h11.303c-1.334,3.759-4.871,6.581-9.303,6.581c-5.408,0-9.946-3.304-11.728-7.966 l-6.39,4.927C8.271,39.558,15.536,44,24,44c11.045,0,20-8.955,20-20C44,22.659,43.86,21.352,43.611,20.083z"/>
-        </svg>
         Continue with Google
       </button>
+
+      <div className="mt-4 text-right">
+        <a
+          href="/forgot-password"
+          className="text-sm font-medium text-sky-600 hover:text-sky-500"
+        >
+          Forgot password?
+        </a>
+      </div>
     </div>
   );
 }

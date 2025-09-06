@@ -7,21 +7,25 @@ export const SITE_URL =
 
 // Centralized app routes
 export const ROUTES = {
+  home: '/',
   login: '/login',
   profile: '/profile',
   admin: '/admin',
   resetPassword: '/reset-password',
 } as const;
 
-// Named redirects expected by other modules
+// Named redirects used elsewhere
 export const ADMIN_REDIRECT = ROUTES.admin;
 export const DEFAULT_USER_REDIRECT = ROUTES.profile;
 
-// Admin emails via env (comma-separated).
-// Example: NEXT_PUBLIC_ADMIN_EMAILS="braemass22@gmail.com,another@domain.com"
-const adminsFromEnv = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
+// Default admin(s) if env is missing — includes your email so you always get admin in preprod
+const DEFAULT_ADMINS = ['braemass22@gmail.com'];
+
+// Admin emails via env (comma-separated). Example:
+// NEXT_PUBLIC_ADMIN_EMAILS="braemass22@gmail.com,another@domain.com"
+const adminsFromEnv = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || DEFAULT_ADMINS.join(','))
   .split(',')
-  .map(e => e.trim().toLowerCase())
+  .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
 
 export const ADMIN_EMAILS_ARRAY = adminsFromEnv;
@@ -36,7 +40,7 @@ export function isAdmin(email?: string | null): boolean {
 // Alias to satisfy existing imports elsewhere (e.g., UserBarServer.tsx)
 export const isAdminEmail = (email?: string | null) => isAdmin(email);
 
-// Build an invite link that pre-fills email and optional next path
+// Build an invite/sign-in link that pre-fills email and optional next path
 export function inviteLink(email: string, next: string = DEFAULT_USER_REDIRECT): string {
   const url = new URL(`${SITE_URL}${ROUTES.login}`);
   url.searchParams.set('email', email);

@@ -1,117 +1,67 @@
 // middleware.ts
-import type { NextRequest } from 'next/server';
-import { NextResponse } from 'next/server';
-import { isAdmin } from '@/lib/site';
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { ROUTES, isAdmin } from '@/lib/site';
 
-function decodeJwtPayload<T = any>(jwt: string): T | null {
-  try {
-    const [, payloadB64] = jwt.split('.');
-    if (!payloadB64) return null;
-    // base64url → base64
-    const b64 = payloadB64.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = b64.padEnd(b64.length + ((4 - (b64.length % 4)) % 4), '=');
-    const json = atob(padded);
-    return JSON.parse(json) as T;
-  } catch {
-    return null;
-  }
-}
+export const runtime = 'nodejs'; // needed for supabase-js ws/lib
 
-/**
- * Read Supabase SSR auth cookie placed by @supabase/ssr callback.
- * Cookie name looks like: sb:<project-ref>-auth-token
- */
-function readSupabaseEmailFromCookie(req: NextRequest) {
-  const cookie = req.cookies
-    .getAll()
-    .find((c) => c.name.startsWith('sb:') && c.name.endsWith('-auth-token'));
-
-  if (!cookie?.value) return { email: null as string | null, isExpired: true };
-
-  try {
-    const parsed = JSON.parse(cookie.value) as { access_token?: string };
-    const token = parsed.access_token;
-    if (!token) return { email: null as string | null, isExpired: true };
-
-    const payload = decodeJwtPayload<{ email?: string; exp?: number }>(token);
-    const email = payload?.email ?? null;
-    const exp = payload?.exp ?? 0;
-    const isExpired = exp ? Date.now() / 1000 >= exp : true;
-
-    return { email, isExpired };
-  } catch {
-    return { email: null as string | null, isExpired: true };
-  }
-}
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export async function middleware(req: NextRequest) {
-  const { pathname, searchParams } = req.nextUrl;
+  const { pathname, searchParams } = new URL(req.url);
 
-  // Public routes that never require auth
-  const isPublic =
-    pathname.startsWith('/login') ||
-    pathname.startsWith('/auth/callback') ||
-    pathname.startsWith('/reset-password') ||
-    pathname.startsWith('/api/') ||
-    pathname === '/favicon.ico';
+  // Build a mutable response for cookie updates
+  const res = NextResponse.next();
 
-  // Extract email (if any) from Supabase cookie
-  const { email, isExpired } = readSupabaseEmailFromCookie(req);
-  const isAuthed = !!email && !isExpired;
-  const userIsAdmin = isAdmin(email);
+  // Supabase SSR client with request/response cookie bridge
+  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookies: {
+      get: (name: string) => req.cookies.get(name)?.value,
+      set: (name: string, value: string, options?: any) => {
+        res.cookies.set({ name, value, ...(options || {}) });
+      },
+      remove: (name: string, options?: any) => {
+        res.cookies.set({ name, value: '', ...(options || {}), maxAge: 0 });
+      },
+    },
+  });
 
-  // If user hits "/" — send them to the right home
-  if (pathname === '/') {
-    const url = req.nextUrl.clone();
-    url.pathname = isAuthed ? (userIsAdmin ? '/admin' : '/profile') : '/login';
-    // preserve ?next= if any
-    return NextResponse.redirect(url);
-  }
+  const { data: userData } = await supabase.auth.getUser();
+  const email = userData?.user?.email?.toLowerCase() || null;
+  const authed = !!email;
+  const admin = authed && isAdmin(email);
 
-  // If already signed in, keep them out of /login
-  if (pathname.startsWith('/login') && isAuthed) {
-    const url = req.nextUrl.clone();
+  // If already signed in, keep people away from /login
+  if (pathname === ROUTES.login && authed) {
     const next = searchParams.get('next');
-    url.pathname = next && next.startsWith('/')
-      ? next
-      : userIsAdmin
-        ? '/admin'
-        : '/profile';
-    return NextResponse.redirect(url);
+    const dest = admin ? ROUTES.admin : next || ROUTES.profile;
+    return NextResponse.redirect(new URL(dest, req.url));
   }
 
-  // Lock down /admin/**
-  if (pathname.startsWith('/admin')) {
-    if (!isAuthed) {
-      const url = req.nextUrl.clone();
-      url.pathname = '/login';
-      url.searchParams.set('next', pathname);
-      return NextResponse.redirect(url);
+  // Guard /admin for admins only
+  if (pathname.startsWith(ROUTES.admin)) {
+    if (!authed) {
+      const u = new URL(ROUTES.login, req.url);
+      u.searchParams.set('next', ROUTES.admin);
+      return NextResponse.redirect(u);
     }
-    if (!userIsAdmin) {
-      const url = req.nextUrl.clone();
-      url.pathname = '/profile';
-      return NextResponse.redirect(url);
+    if (!admin) {
+      return NextResponse.redirect(new URL(ROUTES.profile, req.url));
     }
   }
 
-  // For any **non-public** route, require auth
-  if (!isPublic && !isAuthed) {
-    const url = req.nextUrl.clone();
-    url.pathname = '/login';
-    url.searchParams.set('next', pathname);
-    return NextResponse.redirect(url);
-  }
-
-  // Allow request through
-  return NextResponse.next();
+  return res;
 }
 
-// Keep matcher simple (no capturing groups)
 export const config = {
   matcher: [
-    // run on everything except Next internals and favicon
-    '/((?!_next/|favicon.ico).*)',
+    '/',                 // home
+    '/login',
+    '/profile',
+    '/admin/:path*',
+    '/projects/:path*',
   ],
 };
+
 

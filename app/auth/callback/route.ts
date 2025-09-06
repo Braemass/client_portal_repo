@@ -1,69 +1,72 @@
 // app/auth/callback/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
 import { ADMIN_REDIRECT, DEFAULT_USER_REDIRECT, SITE_URL, isAdmin } from '@/lib/site';
 
-export const runtime = 'nodejs';
+export const runtime = 'nodejs'; // ensure Node runtime for ws + cookies
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
+// Handles OAuth / magic-link / recovery "code" exchange and redirects
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
-  const explicitNext = url.searchParams.get('next'); // optional ?next=/somewhere
+  const next = url.searchParams.get('next') || DEFAULT_USER_REDIRECT;
 
-  // Prepare a redirect response we can mutate cookies on
-  // We'll choose the destination after we know the user.
-  let dest = explicitNext && explicitNext.startsWith('/')
-    ? explicitNext
-    : DEFAULT_USER_REDIRECT;
-
-  const res = NextResponse.redirect(new URL(dest, SITE_URL));
-
-  if (!code) {
-    // No code present—just go to login
-    return NextResponse.redirect(new URL('/login', SITE_URL));
-  }
-
-  // Minimal cookies adapter that matches @supabase/ssr expectations
-  const cookiesAdapter = {
-    get(name: string) {
-      return req.cookies.get(name)?.value;
-    },
-    set(name: string, value: string, options: CookieOptions) {
-      res.cookies.set({ name, value, ...options });
-    },
-    remove(name: string, options: CookieOptions) {
-      res.cookies.set({ name, value: '', ...options, maxAge: 0 });
-    },
-  } as any;
+  // We will set cookies on this response
+  const res = NextResponse.redirect(new URL('/login', req.url)); // temp; we’ll overwrite below
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    cookies: cookiesAdapter,
+    cookies: {
+      get: (name: string) => req.cookies.get(name)?.value,
+      set: (name: string, value: string, options?: any) => {
+        res.cookies.set({ name, value, ...(options || {}) });
+      },
+      remove: (name: string, options?: any) => {
+        res.cookies.set({ name, value: '', ...(options || {}), maxAge: 0 });
+      },
+    },
   });
 
-  // IMPORTANT: pass a string (not an object) to exchangeCodeForSession
+  if (!code) {
+    // no auth code present; just go to login
+    return NextResponse.redirect(new URL('/login', req.url));
+  }
+
+  // Exchange the code for a session (IMPORTANT: expects a string param)
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(error.message)}`, SITE_URL)
+      new URL(`/login?error=${encodeURIComponent(error.message)}`, req.url)
     );
   }
 
-  // Decide destination based on user’s email (if no explicit ?next)
-  if (!explicitNext) {
-    const { data: userData } = await supabase.auth.getUser();
-    const email = userData.user?.email ?? null;
-    dest = isAdmin(email) ? ADMIN_REDIRECT : DEFAULT_USER_REDIRECT;
-    res.headers.set('Location', new URL(dest, SITE_URL).toString());
-  }
+  // Now we can read the user and decide where to go
+  const { data: userData } = await supabase.auth.getUser();
+  const email = userData?.user?.email?.toLowerCase() || null;
 
-  return res;
+  const dest = email && isAdmin(email) ? ADMIN_REDIRECT : next;
+  return NextResponse.redirect(new URL(dest, req.url));
 }
 
-// Optional cookie-sync endpoint for email/password flows
-export async function POST() {
-  return NextResponse.json({ ok: true });
+// Optional: a cookie-sync endpoint you can call after password sign-in
+export async function POST(req: NextRequest) {
+  // Touching the SSR client ensures cookies are set on server response as needed
+  const res = NextResponse.json({ ok: true });
+  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookies: {
+      get: (name: string) => req.cookies.get(name)?.value,
+      set: (name: string, value: string, options?: any) => {
+        res.cookies.set({ name, value, ...(options || {}) });
+      },
+      remove: (name: string, options?: any) => {
+        res.cookies.set({ name, value: '', ...(options || {}), maxAge: 0 });
+      },
+    },
+  });
+  // This read forces the helper to reconcile cookies if needed
+  await supabase.auth.getSession();
+  return res;
 }
 
