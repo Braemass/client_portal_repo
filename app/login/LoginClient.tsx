@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
 import { isAdmin, DEFAULT_USER_REDIRECT, ROUTES, SITE_URL } from '@/lib/site';
@@ -20,16 +20,12 @@ export default function LoginClient({ prefillEmail }: { prefillEmail?: string })
   const [pending, setPending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // If already signed in, bounce right away (helps CSR dev experience)
   useEffect(() => {
     let canceled = false;
     supabase.auth.getUser().then(({ data }) => {
       if (canceled) return;
       const e = data?.user?.email || null;
-      if (e) {
-        const dest = isAdmin(e) ? ROUTES.admin : nextParam;
-        router.replace(dest);
-      }
+      if (e) router.replace(isAdmin(e) ? ROUTES.admin : nextParam);
     });
     return () => { canceled = true; };
   }, [router, nextParam]);
@@ -39,15 +35,16 @@ export default function LoginClient({ prefillEmail }: { prefillEmail?: string })
     setPending(true);
     setErr(null);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
-      // (Optional) hit the server to sync cookies (usually not required, but helps)
+      // Ensure server cookie sync then redirect
       await fetch('/auth/callback', { method: 'POST' });
-
+      const { data } = await supabase.auth.getUser();
       const dest = isAdmin(data.user?.email || '') ? ROUTES.admin : nextParam;
+
       router.replace(dest);
-      router.refresh(); // make sure server sees fresh auth on first paint
+      router.refresh();
     } catch (e: any) {
       setErr(e?.message || 'Sign-in failed');
     } finally {
@@ -66,7 +63,6 @@ export default function LoginClient({ prefillEmail }: { prefillEmail?: string })
         },
       });
       if (error) throw error;
-      // Browser will leave for Google; no local redirect here.
     } catch (e: any) {
       setPending(false);
       setErr(e?.message || 'Google sign-in failed');
@@ -75,18 +71,13 @@ export default function LoginClient({ prefillEmail }: { prefillEmail?: string })
 
   return (
     <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-lg backdrop-blur">
-      <h1 className="mb-2 text-xl font-semibold text-slate-900">Client Portal with StrandAerial</h1>
-      <p className="mb-6 text-sm text-slate-600">
-        Sign in to access your projects. Admins are redirected to the Admin panel.
-      </p>
-
+      <h1 className="mb-2 text-xl font-semibold text-slate-900">Client Portal • StrandAerial</h1>
       <form onSubmit={onSignIn} className="space-y-3">
         <div>
           <label className="block text-sm font-medium text-slate-700">Email</label>
           <input
             type="email"
-            autoComplete="email"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-400"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -97,8 +88,7 @@ export default function LoginClient({ prefillEmail }: { prefillEmail?: string })
           <label className="block text-sm font-medium text-slate-700">Password</label>
           <input
             type="password"
-            autoComplete="current-password"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-400"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -132,10 +122,7 @@ export default function LoginClient({ prefillEmail }: { prefillEmail?: string })
       </button>
 
       <div className="mt-4 text-right">
-        <a
-          href="/forgot-password"
-          className="text-sm font-medium text-sky-600 hover:text-sky-500"
-        >
+        <a href="/forgot-password" className="text-sm font-medium text-sky-600 hover:text-sky-500">
           Forgot password?
         </a>
       </div>

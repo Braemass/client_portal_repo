@@ -1,27 +1,30 @@
-import type { ReactNode } from 'react';
-import Link from 'next/link';
-import UserBar from '@/components/UserBar';
+// app/admin/layout.tsx
+import { cookies } from 'next/headers';
+import { createServerClient } from '@supabase/ssr';
+import { isAdmin } from '@/lib/site';
+import { redirect } from 'next/navigation';
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
-  return (
-    <div className="min-h-screen">
-      {/* Top admin nav */}
-      <header className="sticky top-0 z-30 border-b bg-white/80 backdrop-blur">
-        <div className="mx-auto max-w-6xl h-12 sm:h-14 px-4 flex items-center justify-between">
-          <nav className="flex items-center gap-4 text-sm">
-            <Link href="/admin" className="font-semibold hover:opacity-80">Admin</Link>
-            <Link href="/admin/projects" className="hover:opacity-80">Projects</Link>
-            <Link href="/admin/clients" className="hover:opacity-80">Clients</Link>
-            <Link href="/admin/upload" className="hover:opacity-80">Upload</Link>
-            <Link href="/admin/invoices" className="hover:opacity-80">Invoices</Link>
-          </nav>
-          <UserBar />
-        </div>
-      </header>
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-      {/* Page content */}
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
-    </div>
-  );
+export const dynamic = 'force-dynamic';
+
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  const cookieStore = cookies();
+  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookies: {
+      get: (name) => cookieStore.get(name)?.value,
+      set: () => {},
+      remove: () => {},
+    },
+  });
+
+  const { data } = await supabase.auth.getUser();
+  const email = data.user?.email || null;
+
+  if (!email) redirect(`/login?next=/admin`);
+  if (!isAdmin(email)) redirect('/profile');
+
+  return <>{children}</>;
 }
 
