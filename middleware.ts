@@ -1,141 +1,98 @@
 // middleware.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { NextRequest, NextResponse } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
 
-// Public assets and files we always allow to pass through
-const PUBLIC_ASSET_PREFIXES = [
-  '/_next', '/favicon', '/icons', '/images', '/assets', '/fonts', '/public',
-];
-const PUBLIC_FILES = new Set(['/robots.txt', '/sitemap.xml']);
+export const dynamic = 'force-dynamic' // always run; we’re reading auth on each request
 
-// Treat these as public (no session required)
-function isAuthRoute(path: string) {
-  return (
-    path === '/login' ||
-    path.startsWith('/auth/') ||          // OAuth callback, etc.
-    path === '/reset-password' ||
-    path.startsWith('/api/auth/')         // forgot-password API, etc.
-  );
-}
-
-function isPublicAsset(path: string) {
-  if (PUBLIC_FILES.has(path)) return true;
-  return PUBLIC_ASSET_PREFIXES.some((p) => path.startsWith(p)) || /\.[a-zA-Z0-9]+$/.test(path);
+function isAdminEmail(email?: string | null): boolean {
+  if (!email) return false
+  const envList =
+    process.env.NEXT_PUBLIC_ADMIN_EMAILS?.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) ?? []
+  return envList.includes(email.toLowerCase())
 }
 
 export async function middleware(req: NextRequest) {
-  const url = new URL(req.url);
-  const res = NextResponse.next();
+  const { pathname, search } = req.nextUrl
 
-  // Always allow assets and explicitly-public auth routes
-  if (isPublicAsset(pathname) || isAuthRoute(pathname)) {
-    return NextResponse.next();
-  }
+  // Response we may mutate cookies on and return
+  const res = NextResponse.next()
 
-  // We’ll write cookies to this response. If we later redirect,
-  // we’ll copy these cookies to the redirect response.
-  let response = NextResponse.next();
-
-  // Supabase server client using request/response cookies
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return req.cookies.getAll();
+        get(name: string) {
+          return req.cookies.get(name)?.value
         },
-        setAll(cookies) {
-          cookies.forEach(({ name, value, options }) => {
-            response.cookies.set({ name, value, ...(options ?? {}) });
-          });
+        set(name: string, value: string, options?: Parameters<typeof res.cookies.set>[2]) {
+          res.cookies.set(name, value, options)
+        },
+        remove(name: string, options?: Parameters<typeof res.cookies.set>[2]) {
+          res.cookies.set(name, '', { ...options, maxAge: 0 })
         },
       },
     }
-  );
+  )
 
-const PUBLIC = new Set([
-    '/', '/login', '/auth/callback', '/reset-password'
-  ]);
+  const { data } = await supabase.auth.getSession()
+  const session = data.session
+  const email = session?.user?.email ?? null
+  const isAuthed = !!session
 
- if (PUBLIC.has(url.pathname) || url.searchParams.get('type') === 'recovery') {
-    return res;
+  const wantsAdmin = pathname.startsWith('/admin')
+  const isProtected =
+    wantsAdmin || pathname.startsWith('/profile') || pathname.startsWith('/projects')
+  const isRoot = pathname === '/'
+  const isLogin = pathname === '/login'
+  // allow reset-password & auth callback without checks
 
- return res;
-
-export const config = {
-  matcher: [
-    // No capturing groups; this skips Next assets and static files
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(png|jpg|jpeg|gif|svg|ico|webp|avif|css|js|txt|map)).*)',
-  ],
-};
-
-  // Current session (if any)
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  // Unauthenticated → send to /login?next=<requested path+query>
-  if (!session) {
-    const url = new URL('/login', origin);
-    url.searchParams.set('next', `${pathname}${search || ''}` || '/profile');
-    const redirectRes = NextResponse.redirect(url);
-    response.cookies.getAll().forEach((c) => redirectRes.cookies.set(c));
-    return redirectRes;
-  }
-
-  // If already signed in and hits /login, send to /profile
-  if (pathname === '/login') {
-    const url = new URL('/profile', origin);
-    const redirectRes = NextResponse.redirect(url);
-    response.cookies.getAll().forEach((c) => redirectRes.cookies.set(c));
-    return redirectRes;
-  }
-
-  // Admin-gate: block /admin/* for non-admins
-  if (pathname.startsWith('/admin')) {
-    let isAdmin = false;
-    try {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role,is_admin')
-        .eq('id', session.user.id)
-        .maybeSingle();
-
-      if (profile) {
-        if ((profile as any).role === 'admin') isAdmin = true;
-        if ((profile as any).is_admin === true) isAdmin = true;
-      }
-    } catch {
-      // If the check fails, assume not admin
-      isAdmin = false;
+  // Root: send to login, or to profile/admin if already signed in
+  if (isRoot) {
+    const url = req.nextUrl.clone()
+    if (!isAuthed) {
+      url.pathname = '/login'
+    } else {
+      url.pathname = isAdminEmail(email) ? '/admin' : '/profile'
     }
+    return NextResponse.redirect(url)
+  }
 
-    if (!isAdmin) {
-      const url = new URL('/profile', origin);
-      const redirectRes = NextResponse.redirect(url);
-      response.cookies.getAll().forEach((c) => redirectRes.cookies.set(c));
-      return redirectRes;
+  // Gate protected routes
+  if (isProtected) {
+    if (!isAuthed) {
+      const url = req.nextUrl.clone()
+      url.pathname = '/login'
+      url.search = `?next=${encodeURIComponent(pathname + (search || ''))}`
+      return NextResponse.redirect(url)
     }
+    if (wantsAdmin && !isAdminEmail(email)) {
+      const url = req.nextUrl.clone()
+      url.pathname = '/profile'
+      return NextResponse.redirect(url)
+    }
+    return res
   }
 
-  // Optional: send authenticated users who hit "/" to /profile by default
-  if (pathname === '/') {
-    const url = new URL('/profile', origin);
-    const redirectRes = NextResponse.redirect(url);
-    response.cookies.getAll().forEach((c) => redirectRes.cookies.set(c));
-    return redirectRes;
+  // Signed-in users hitting /login → bounce to their area
+  if (isLogin && isAuthed) {
+    const url = req.nextUrl.clone()
+    url.pathname = isAdminEmail(email) ? '/admin' : '/profile'
+    return NextResponse.redirect(url)
   }
 
-  // Default: continue
-  return response;
+  // Everything else passes through
+  return res
 }
 
-// ✅ No capturing groups in this matcher
 export const config = {
   matcher: [
-    // Run middleware for everything except Next internals and common public folders/files
-    '/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|images/|icons/|assets/|fonts/).*)',
+    '/',                // root
+    '/login',           // login page
+    '/reset-password',  // reset password page
+    '/profile',         // profile
+    '/projects/:path*', // projects
+    '/admin/:path*',    // admin area
   ],
-};
+}
 
