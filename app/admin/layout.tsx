@@ -4,26 +4,37 @@ import { createServerClient } from '@supabase/ssr';
 import { isAdmin } from '@/lib/site';
 import { redirect } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export const dynamic = 'force-dynamic';
+export default async function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  // NOTE: cookies() is async in Next 15
+  const cookieStore = await cookies();
 
-export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const cookieStore = cookies();
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
-      get: (name) => cookieStore.get(name)?.value,
+      get: (name: string) => cookieStore.get(name)?.value,
       set: () => {},
       remove: () => {},
     },
   });
 
   const { data } = await supabase.auth.getUser();
-  const email = data.user?.email || null;
+  const email = data.user?.email ?? null;
 
-  if (!email) redirect(`/login?next=/admin`);
-  if (!isAdmin(email)) redirect('/profile');
+  if (!email) {
+    redirect(`/login?next=/admin`);
+  }
+
+  if (!isAdmin(email)) {
+    redirect('/profile');
+  }
 
   return <>{children}</>;
 }
