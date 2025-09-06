@@ -1,44 +1,48 @@
 // lib/site.ts
+// Centralized site/runtime config & helpers
+
+// --- Site origin -------------------------------------------------------------
+
+// Prefer explicit env var; otherwise infer from Vercel; finally use a hard fallback.
+const FALLBACK_DOMAIN =
+  'https://client-portal-repo-hs8le17ox-braedons-projects-64bd4c3a.vercel.app';
+
 export const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ??
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+  (process.env.NEXT_PUBLIC_SITE_URL && process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')) ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
+  FALLBACK_DOMAIN;
 
-export const ROUTES = {
-  home: '/',
-  login: '/login',
-  profile: '/profile',
-  admin: '/admin',
-  resetPassword: '/reset-password',
-} as const;
+// Common redirect targets
+export const DEFAULT_USER_REDIRECT = '/profile';
+export const ADMIN_REDIRECT = '/admin';
 
-export const ADMIN_REDIRECT = ROUTES.admin;
-export const DEFAULT_USER_REDIRECT = ROUTES.profile;
+// Supabase “redirectTo” targets (OAuth & email links)
+export const OAUTH_REDIRECT = `${SITE_URL}/auth/callback`;
+export const RECOVERY_REDIRECT = `${SITE_URL}/reset-password`;
 
-const DEFAULT_ADMINS = ['braemass22@gmail.com'];
+// --- Admins ------------------------------------------------------------------
 
-const adminsFromEnv = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || DEFAULT_ADMINS.join(','))
+// Comma-separated list of admin emails (case-insensitive)
+export const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS ?? 'braemass22@gmail.com')
   .split(',')
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
 
-export const ADMIN_EMAILS_ARRAY = adminsFromEnv;
-export const ADMIN_EMAILS = new Set<string>(adminsFromEnv);
+// Predicate used across server/client
+export const isAdmin = (email?: string | null) =>
+  !!email && ADMIN_EMAILS.includes(String(email).toLowerCase());
 
-export function isAdmin(email?: string | null): boolean {
-  if (!email) return false;
-  return ADMIN_EMAILS.has(email.trim().toLowerCase());
-}
-export const isAdminEmail = (email?: string | null) => isAdmin(email);
+// Back-compat alias (some files may import this name)
+export const isAdminEmail = isAdmin;
 
-export function inviteLink(email: string, next: string = DEFAULT_USER_REDIRECT): string {
-  const url = new URL(`${SITE_URL}${ROUTES.login}`);
+// --- Links -------------------------------------------------------------------
+
+// Build an invite/login link that pre-fills the email and optional next destination
+export function inviteLink(email: string, next: string = DEFAULT_USER_REDIRECT) {
+  const url = new URL('/login', SITE_URL);
   url.searchParams.set('email', email);
-  url.searchParams.set('next', next);
+  if (next) url.searchParams.set('next', next);
+  url.searchParams.set('mode', 'invite');
   return url.toString();
 }
-
-export const REDIRECTS = {
-  resetPassword: `${SITE_URL}${ROUTES.resetPassword}`,
-  afterLoginDefault: `${SITE_URL}${DEFAULT_USER_REDIRECT}`,
-} as const;
 
