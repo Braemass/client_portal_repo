@@ -24,7 +24,8 @@ function isPublicAsset(path: string) {
 }
 
 export async function middleware(req: NextRequest) {
-  const { pathname, origin, search } = req.nextUrl;
+  const url = new URL(req.url);
+  const res = NextResponse.next();
 
   // Always allow assets and explicitly-public auth routes
   if (isPublicAsset(pathname) || isAuthRoute(pathname)) {
@@ -52,6 +53,22 @@ export async function middleware(req: NextRequest) {
       },
     }
   );
+
+const PUBLIC = new Set([
+    '/', '/login', '/auth/callback', '/reset-password'
+  ]);
+
+ if (PUBLIC.has(url.pathname) || url.searchParams.get('type') === 'recovery') {
+    return res;
+
+ return res;
+
+export const config = {
+  matcher: [
+    // No capturing groups; this skips Next assets and static files
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(png|jpg|jpeg|gif|svg|ico|webp|avif|css|js|txt|map)).*)',
+  ],
+};
 
   // Current session (if any)
   const {

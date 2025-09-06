@@ -1,6 +1,7 @@
 // LoginClient.tsx (client component)
 'use client'
 
+import { AUTH_CALLBACK } from '@/lib/site';
 import { useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -18,7 +19,7 @@ export default function LoginClient() {
 
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo:
-        'https://client-portal-repo-hs8le17ox-braedons-projects-64bd4c3a.vercel.app/reset-password',
+		redirectTo: `${AUTH_CALLBACK}?next=/reset-password`,
     })
 
     if (error) setErr(error.message)
