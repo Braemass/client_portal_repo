@@ -1,26 +1,46 @@
 // lib/site.ts
 
-NEXT_PUBLIC_ADMIN_EMAILS=braemass22@gmail.com
-
-// Public site origin (used for OAuth redirectTo, etc)
+// Public site origin (used for OAuth redirectTo, invite links, etc)
 export const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ||
-  (typeof window === 'undefined'
-    ? process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000'
-    : window.location.origin);
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
 
-export const DEFAULT_USER_REDIRECT = '/profile';
-export const ADMIN_REDIRECT = '/admin';
+// Route helpers used across the app
+export const ROUTES = {
+  login: '/login',
+  profile: '/profile',
+  admin: '/admin',
+  resetPassword: '/reset-password',
+} as const;
 
-// Comma-separated admin emails (lowercased). Default includes your email.
-export const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS ||
-  'braemass22@gmail.com')
+// Admin emails come from env (comma-separated). Example in .env.local:
+// NEXT_PUBLIC_ADMIN_EMAILS="braemass22@gmail.com,another-admin@domain.com"
+const adminsFromEnv = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
   .split(',')
-  .map(s => s.trim().toLowerCase())
+  .map(e => e.trim().toLowerCase())
   .filter(Boolean);
 
-export const isAdmin = (email?: string | null) =>
-  !!email && ADMIN_EMAILS.includes(email.toLowerCase());
+// Export in both forms for convenience
+export const ADMIN_EMAILS_ARRAY = adminsFromEnv;
+export const ADMIN_EMAILS = new Set<string>(adminsFromEnv);
+
+// Simple checker used in middleware/UI
+export function isAdminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  return ADMIN_EMAILS.has(email.trim().toLowerCase());
+}
+
+// Build an invite link that pre-fills email and optional next path
+export function inviteLink(email: string, next: string = ROUTES.profile): string {
+  const url = new URL(`${SITE_URL}${ROUTES.login}`);
+  url.searchParams.set('email', email);
+  url.searchParams.set('next', next);
+  return url.toString();
+}
+
+// Supabase redirect targets for auth emails
+export const REDIRECTS = {
+  resetPassword: `${SITE_URL}${ROUTES.resetPassword}`,
+  afterLoginDefault: `${SITE_URL}${ROUTES.profile}`,
+};
 
