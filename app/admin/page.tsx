@@ -26,11 +26,12 @@ export default async function AdminHome() {
     throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
   }
 
-  const cookieStore = cookies();
+  // NOTE: In your setup cookies() is async, so await it here.
+  const cookieStore = await cookies();
+
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
       get(name: string) {
-        // RSC cookies() is synchronous in Next 15
         return cookieStore.get(name)?.value;
       },
       // We only need read access on this page
