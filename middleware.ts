@@ -2,9 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
-// Edge runtime is implied for middleware; no need to export runtime here.
-
-function isAdminEmail(email: string | null | undefined) {
+// Treat these emails as admins (comma-separated in env)
+function isAdminEmail(email?: string | null) {
   if (!email) return false;
   const list = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
     .split(',')
@@ -15,16 +14,23 @@ function isAdminEmail(email: string | null | undefined) {
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
+  const pathname = req.nextUrl.pathname;
+
+  // 0) Skip static assets & Next internals early (since we match everything below)
+  const isStaticAsset =
+    pathname.startsWith('/_next') ||
+    pathname === '/favicon.ico' ||
+    /\.(?:png|jpg|jpeg|gif|svg|ico|webp|avif|css|js|txt|map)$/.test(pathname);
+
+  if (isStaticAsset) return res;
 
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // If Supabase env vars are missing, skip auth logic gracefully
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    return res;
-  }
+  // If Supabase env vars are missing, bail gracefully
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return res;
 
-  // In middleware we can use req.cookies directly (sync)
+  // In middleware, cookies are sync:
   const cookieStore = req.cookies;
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -41,34 +47,28 @@ export async function middleware(req: NextRequest) {
     },
   });
 
-  const url = new URL(req.url);
-  const path = url.pathname;
-
-  // Fetch the current user (if any)
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isAdminRoute = path.startsWith('/admin');
-  const isLogin = path === '/login';
-  const isPublicPath =
-    isLogin ||
-    path.startsWith('/auth/callback') ||
-    path.startsWith('/reset-password') ||
-    path === '/' || // allow root; your root route can redirect to /login server-side if desired
-    path.startsWith('/api/'); // don't block API routes with middleware
+  const isLogin = pathname === '/login';
+  const isAdminRoute = pathname.startsWith('/admin');
+  const isAuthCallback = pathname.startsWith('/auth/callback');
+  const isResetPassword = pathname.startsWith('/reset-password');
+  const isPublic =
+    isLogin || isAuthCallback || isResetPassword || pathname === '/' || pathname.startsWith('/api/');
 
-  // 1) If NOT signed in and hitting a protected page, go to /login
-  if (!user && !isPublicPath && !isAdminRoute) {
+  // 1) Not signed in, trying to hit a protected page → send to /login
+  if (!user && !isPublic) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
-  // 2) If signed in and visiting /login, bounce to role-appropriate place
+  // 2) Signed in and on /login → bounce to role destination
   if (user && isLogin) {
     return NextResponse.redirect(new URL(isAdminEmail(user.email) ? '/admin' : '/profile', req.url));
   }
 
-  // 3) Admin gate: user must be admin to view /admin/*
+  // 3) Admin gate for /admin/*
   if (isAdminRoute) {
     if (!user) {
       return NextResponse.redirect(new URL('/login', req.url));
@@ -81,11 +81,9 @@ export async function middleware(req: NextRequest) {
   return res;
 }
 
-// IMPORTANT: matcher without capturing groups (Next.js 15 requirement)
+// Safe matcher with no lookaheads/capturing groups.
+// We match everything and skip assets inside the middleware logic.
 export const config = {
-  matcher: [
-    // Skip Next.js assets and common static files (no capturing groups anywhere)
-    '/(?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|avif|css|js|txt|map)$).*',
-  ],
+  matcher: ['/:path*'],
 };
 
