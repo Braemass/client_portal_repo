@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-// Admin list comes from env: comma-separated emails
+// Comma-separated list of admin emails in env: NEXT_PUBLIC_ADMIN_EMAILS
 const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
   .split(',')
   .map((s) => s.trim().toLowerCase())
@@ -19,7 +19,7 @@ const isAdminEmail = (email?: string | null) =>
 
 // GET /auth/callback?code=...&next=/profile|/admin
 export async function GET(req: NextRequest) {
-  const cookieStore = cookies();
+  const cookieStore = await cookies(); // <-- fix: await
   const res = NextResponse.next();
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/login?error=missing_code', req.url));
   }
 
-  // Exchange the code for a session
+  // Exchange the OAuth code for a session
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     return NextResponse.redirect(
@@ -60,9 +60,9 @@ export async function GET(req: NextRequest) {
   return NextResponse.redirect(new URL(dest, req.url));
 }
 
-// POST /auth/callback  — sync server cookies after password sign-in
+// POST /auth/callback — used by email+password flow to sync cookies for SSR
 export async function POST(_req: NextRequest) {
-  const cookieStore = cookies();
+  const cookieStore = await cookies(); // <-- fix: await
   const res = NextResponse.json({ ok: true });
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -79,7 +79,7 @@ export async function POST(_req: NextRequest) {
     },
   });
 
-  // Touch the session to ensure cookies are mirrored server-side
+  // Touch the session so server cookies mirror the browser session
   await supabase.auth.getSession();
 
   return res;
