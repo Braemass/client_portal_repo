@@ -20,14 +20,14 @@ export async function GET(req: NextRequest) {
   const code = url.searchParams.get('code');
   const next = url.searchParams.get('next') || DEFAULT_USER_REDIRECT;
 
-  // Missing code -> back to login
   if (!code) {
     return NextResponse.redirect(new URL(`${ROUTES.login}?error=missing_code`, SITE_URL));
   }
 
-  const cookieStore = cookies();
+  // NOTE: await is required here in your setup
+  const cookieStore = await cookies();
 
-  // Prepare a redirect response (we'll set the final Location later)
+  // Prepare response; we'll set final Location after we know role
   const res = NextResponse.redirect(new URL(next, SITE_URL));
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -44,7 +44,6 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  // Exchange the code for a session (IMPORTANT: string param, not object)
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     res.headers.set(
@@ -57,15 +56,13 @@ export async function GET(req: NextRequest) {
   const email = data.user?.email ?? null;
   const destination = isAdminEmail(email) ? ADMIN_REDIRECT : next;
 
-  // Point redirect at the right place *after* cookies have been set on `res`
   res.headers.set('Location', new URL(destination, SITE_URL).toString());
   return res;
 }
 
-// Optional: endpoint you can POST to right after credential sign-in/out
-// to ensure server cookies are synced (handy for client->server transitions).
+// Optional cookie-sync endpoint
 export async function POST(_req: NextRequest) {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const res = NextResponse.json({ ok: true });
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -82,7 +79,6 @@ export async function POST(_req: NextRequest) {
     },
   });
 
-  // Touch the client so cookie methods are bound; no-op otherwise
   void supabase;
   return res;
 }
