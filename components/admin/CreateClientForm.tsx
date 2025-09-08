@@ -1,4 +1,3 @@
-// components/admin/CreateClientForm.tsx
 'use client';
 
 import { useState } from 'react';
@@ -6,7 +5,6 @@ import { useState } from 'react';
 export default function CreateClientForm() {
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
-  const [password, setPassword] = useState(''); // optional
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -16,75 +14,55 @@ export default function CreateClientForm() {
     setLoading(true);
     setMsg(null);
     setErr(null);
-
     try {
-      const r = await fetch('/api/admin/create-client', {
+      const res = await fetch('/api/admin/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // password is optional; omit it to require magic-link
-        body: JSON.stringify({ email, full_name: fullName, password: password || undefined }),
+        body: JSON.stringify({ email, fullName }),
       });
-      const data = await r.json();
-      if (!r.ok || !data.ok) throw new Error(data?.error || 'request_failed');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to create client');
       setMsg('Client created and invited successfully.');
       setEmail('');
       setFullName('');
-      setPassword('');
     } catch (e: any) {
-      setErr(e?.message || 'Something went wrong');
+      setErr(e.message);
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-4 rounded-xl p-4 bg-white/60 backdrop-blur border border-slate-200">
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Client Email</label>
+    <form onSubmit={onSubmit} className="grid gap-3 max-w-lg">
+      <label className="grid gap-1">
+        <span className="text-sm text-slate-600">Client email</span>
         <input
+          className="border rounded px-3 py-2"
           type="email"
           required
           value={email}
-          onChange={e => setEmail(e.target.value)}
-          className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-sky-400"
+          onChange={(e) => setEmail(e.target.value)}
           placeholder="client@example.com"
         />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
+      </label>
+      <label className="grid gap-1">
+        <span className="text-sm text-slate-600">Full name (optional)</span>
         <input
-          type="text"
+          className="border rounded px-3 py-2"
           value={fullName}
-          onChange={e => setFullName(e.target.value)}
-          className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-sky-400"
+          onChange={(e) => setFullName(e.target.value)}
           placeholder="Jane Client"
         />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">
-          Temp Password (optional)
-        </label>
-        <input
-          type="password"
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-sky-400"
-          placeholder="Leave blank to send magic-link only"
-        />
-      </div>
-
+      </label>
       <button
         type="submit"
         disabled={loading}
-        className="inline-flex items-center justify-center rounded-md bg-sky-500 hover:bg-sky-600 text-white font-semibold px-4 py-2 disabled:opacity-50"
+        className="inline-flex items-center justify-center rounded-md bg-sky-600 px-4 py-2 text-white font-medium hover:bg-sky-700 disabled:opacity-60"
       >
-        {loading ? 'Creating…' : 'Create Client'}
+        {loading ? 'Creating…' : 'Create client'}
       </button>
-
-      {msg && <p className="text-green-600 text-sm">{msg}</p>}
-      {err && <p className="text-rose-600 text-sm">{err}</p>}
+      {msg && <div className="text-sm text-emerald-700">{msg}</div>}
+      {err && <div className="text-sm text-rose-700">{err}</div>}
     </form>
   );
 }
