@@ -6,15 +6,23 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-type PageProps = {
-  searchParams?: { saved?: string };
-};
+// In Next.js 15, searchParams is a Promise in RSC
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-export default async function ProfilePage({ searchParams }: PageProps) {
+export default async function ProfilePage({
+  searchParams,
+}: {
+  searchParams?: SearchParams;
+}) {
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-  // Next.js 15: cookies() is async
+  // Resolve search params (Next 15)
+  const sp = (await searchParams) ?? {};
+  const savedParam = Array.isArray(sp.saved) ? sp.saved[0] : sp.saved;
+  const saved = savedParam === '1';
+
+  // Next 15: cookies() is async and returns a cookie store
   const cookieStore = await cookies();
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -22,7 +30,7 @@ export default async function ProfilePage({ searchParams }: PageProps) {
       get(name: string) {
         return cookieStore.get(name)?.value;
       },
-      // no-ops are fine for read-only usage in a server component
+      // No-ops for set/remove in a server component are fine
       set(_name: string, _value: string, _options: CookieOptions) {},
       remove(_name: string, _options: CookieOptions) {},
     },
@@ -37,14 +45,14 @@ export default async function ProfilePage({ searchParams }: PageProps) {
     redirect('/login?next=/profile');
   }
 
-  // Load the user's profile row (adjust table/columns to your schema)
+  // Load the user's profile (adjust to your schema)
   const { data: profile } = await supabase
     .from('profiles')
     .select('id, email, full_name, phone, company')
     .eq('id', user.id)
     .maybeSingle();
 
-  // --- Server Action (must return void) ---
+  // ---- Server Action (must return void) ----
   async function saveProfile(formData: FormData): Promise<void> {
     'use server';
 
@@ -71,11 +79,10 @@ export default async function ProfilePage({ searchParams }: PageProps) {
     const phone = String(formData.get('phone') ?? '').trim();
     const company = String(formData.get('company') ?? '').trim();
 
-    // Upsert by authenticated user id; never trust email from the form
     await supabaseInner.from('profiles').upsert(
       {
         id: u!.id,
-        email: u!.email, // keep source of truth
+        email: u!.email, // source of truth
         full_name,
         phone,
         company,
@@ -84,11 +91,9 @@ export default async function ProfilePage({ searchParams }: PageProps) {
       { onConflict: 'id' }
     );
 
-    // Bounce back with a saved flag
+    // Redirect back with a flag (server actions must return void)
     redirect('/profile?saved=1');
   }
-
-  const saved = searchParams?.saved === '1';
 
   return (
     <main className="max-w-3xl mx-auto p-6">
