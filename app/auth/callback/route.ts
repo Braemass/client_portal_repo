@@ -4,10 +4,10 @@ import { cookies } from 'next/headers';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import {
   SITE_URL,
-  ADMIN_REDIRECT,
-  DEFAULT_USER_REDIRECT,
-  isAdminEmail,
   ROUTES,
+  DEFAULT_USER_REDIRECT,
+  ADMIN_REDIRECT,
+  isAdminEmail,
 } from '@/lib/site';
 
 export const runtime = 'nodejs';
@@ -18,17 +18,14 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
-  const next = url.searchParams.get('next') || DEFAULT_USER_REDIRECT;
+  const requestedNext = url.searchParams.get('next') || DEFAULT_USER_REDIRECT;
 
   if (!code) {
     return NextResponse.redirect(new URL(`${ROUTES.login}?error=missing_code`, SITE_URL));
   }
 
-  // NOTE: await is required here in your setup
   const cookieStore = await cookies();
-
-  // Prepare response; we'll set final Location after we know role
-  const res = NextResponse.redirect(new URL(next, SITE_URL));
+  const res = NextResponse.redirect(new URL(DEFAULT_USER_REDIRECT, SITE_URL));
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
@@ -53,33 +50,15 @@ export async function GET(req: NextRequest) {
     return res;
   }
 
-  const email = data.user?.email ?? null;
-  const destination = isAdminEmail(email) ? ADMIN_REDIRECT : next;
+  const email = data.user?.email ?? '';
+
+  // Only honor /admin as a destination if the user is actually an admin
+  let destination = requestedNext;
+  if (requestedNext.startsWith(ROUTES.admin)) {
+    destination = isAdminEmail(email) ? ADMIN_REDIRECT : DEFAULT_USER_REDIRECT;
+  }
 
   res.headers.set('Location', new URL(destination, SITE_URL).toString());
-  return res;
-}
-
-// Optional cookie-sync endpoint
-export async function POST(_req: NextRequest) {
-  const cookieStore = await cookies();
-  const res = NextResponse.json({ ok: true });
-
-  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    cookies: {
-      get(name) {
-        return cookieStore.get(name)?.value;
-      },
-      set(name, value, options) {
-        res.cookies.set({ name, value, ...(options as CookieOptions) });
-      },
-      remove(name, options) {
-        res.cookies.set({ name, value: '', ...(options as CookieOptions), maxAge: 0 });
-      },
-    },
-  });
-
-  void supabase;
   return res;
 }
 

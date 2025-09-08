@@ -1,58 +1,41 @@
 // app/admin/layout.tsx
-import type { ReactNode } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
+import type { CookieOptions } from '@supabase/ssr';
+import { isAdminEmail, ROUTES } from '@/lib/site';
 
 export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
 
-type Props = { children: ReactNode };
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-/**
- * Admin layout
- * - Requires authentication
- * - Admin emails are taken from NEXT_PUBLIC_ADMIN_EMAILS (comma-separated)
- * - Non-admins -> /profile, unauthenticated -> /login?next=/admin
- */
-export default async function AdminLayout({ children }: Props) {
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-  // NEXT 15: cookies() is async
+export default async function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const cookieStore = await cookies();
 
+  // Read-only cookie access is enough to check the session
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value;
-      },
-      // no-ops are fine in a server component (read-only usage)
-      set(_name: string, _value: string, _options: CookieOptions) {},
-      remove(_name: string, _options: CookieOptions) {},
+      get: (name: string) => cookieStore.get(name)?.value,
+      set: (_n: string, _v: string, _o: CookieOptions) => {},
+      remove: (_n: string, _o: CookieOptions) => {},
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data } = await supabase.auth.getUser();
+  const email = data.user?.email ?? '';
 
-  if (!user) {
-    redirect('/login?next=/admin');
+  if (!email) {
+    redirect(`${ROUTES.login}?next=${encodeURIComponent(ROUTES.admin)}`);
+  }
+  if (!isAdminEmail(email)) {
+    redirect(ROUTES.profile);
   }
 
-  const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-
-  const email = (user.email || '').toLowerCase();
-  const isAdmin = adminEmails.includes(email);
-
-  if (!isAdmin) {
-    redirect('/profile');
-  }
-
-  return <section>{children}</section>;
+  return <>{children}</>;
 }
 
