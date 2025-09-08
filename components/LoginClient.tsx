@@ -1,133 +1,234 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
-import { ADMIN_REDIRECT, DEFAULT_USER_REDIRECT, SITE_URL, isAdminEmail as isAdmin } from '@/lib/site';
+import {
+  ADMIN_EMAILS,
+  ADMIN_REDIRECT,
+  DEFAULT_USER_REDIRECT,
+  SITE_URL,
+} from '@/lib/site';
 
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+function isAdminEmail(email?: string | null) {
+  if (!email) return false;
+  return ADMIN_EMAILS.map((e) => e.toLowerCase()).includes(email.toLowerCase());
+}
+
 export default function LoginClient() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const params = useSearchParams();
 
-  // If already signed in, bounce immediately
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!alive) return;
-      const userEmail = data.session?.user?.email ?? null;
-      if (userEmail) {
-        router.replace(isAdmin(userEmail) ? ADMIN_REDIRECT : DEFAULT_USER_REDIRECT);
-      }
-    })();
-    return () => { alive = false; };
-  }, [router]);
+  // Client (non-admin) refs
+  const userEmailRef = useRef<HTMLInputElement>(null);
+  const userPassRef = useRef<HTMLInputElement>(null);
 
-  async function signInWithEmail(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    setBusy(true);
+  // Admin refs
+  const adminEmailRef = useRef<HTMLInputElement>(null);
+  const adminPassRef = useRef<HTMLInputElement>(null);
+
+  const [loading, setLoading] = useState<'none' | 'user' | 'admin' | 'google' | 'admin-google'>('none');
+  const [error, setError] = useState<string | null>(null);
+
+  const nextParam = params.get('next') || '';
+
+  async function syncServerCookies() {
+    // Ensures the server sees the new session cookie (critical for "staying signed in")
+    await fetch('/auth/callback', { method: 'POST' });
+  }
+
+  async function handleEmailPassword(role: 'user' | 'admin') {
+    setError(null);
+    setLoading(role === 'admin' ? 'admin' : 'user');
+
+    const email =
+      role === 'admin' ? adminEmailRef.current?.value : userEmailRef.current?.value;
+    const password =
+      role === 'admin' ? adminPassRef.current?.value : userPassRef.current?.value;
+
+    if (!email || !password) {
+      setError('Please enter your email and password.');
+      setLoading('none');
+      return;
+    }
+
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (signInErr) throw signInErr;
 
-      // (optional) sync cookies for SSR pages
-      await fetch('/auth/callback', { method: 'POST' });
+      await syncServerCookies();
 
-      const userEmail = data.user?.email ?? null;
-      const dest = isAdmin(userEmail) ? ADMIN_REDIRECT : DEFAULT_USER_REDIRECT;
+      // Decide destination
+      const desiredNext = nextParam || (role === 'admin' ? ADMIN_REDIRECT : DEFAULT_USER_REDIRECT);
+      const dest =
+        role === 'admin'
+          ? isAdminEmail(email)
+            ? ADMIN_REDIRECT
+            : '/login?error=not_authorized'
+          : desiredNext;
+
       router.replace(dest);
     } catch (e: any) {
-      setErr(e?.message || 'Sign in failed');
+      setError(e?.message || 'Failed to sign in.');
     } finally {
-      setBusy(false);
+      setLoading('none');
     }
   }
 
-  async function signInWithGoogle() {
-    setErr(null);
-    setBusy(true);
-    try {
-      // Send user to Google -> comes back to /auth/callback, which routes by email
-      await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${SITE_URL}/auth/callback`,
-          queryParams: { prompt: 'select_account' },
-        },
-      });
-      // Control will leave this page
-    } catch (e: any) {
-      setBusy(false);
-      setErr(e?.message || 'Google sign-in failed');
+  async function handleGoogle(role: 'user' | 'admin') {
+    setError(null);
+    setLoading(role === 'admin' ? 'admin-google' : 'google');
+
+    // Where to come back to after Google completes
+    const fallbackNext = role === 'admin' ? ADMIN_REDIRECT : DEFAULT_USER_REDIRECT;
+    const next = nextParam || fallbackNext;
+
+    const redirectTo = `${SITE_URL}/auth/callback?next=${encodeURIComponent(next)}`;
+
+    const { error: oauthErr } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo },
+    });
+
+    if (oauthErr) {
+      setError(oauthErr.message);
+      setLoading('none');
     }
+    // On success, browser leaves this page for Google → will return to /auth/callback
   }
 
   return (
-    <div className="mx-auto max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h1 className="mb-2 text-xl font-bold">Client Portal with StrandAerial</h1>
-      <p className="mb-6 text-sm text-slate-600">Sign in to continue</p>
+    <div className="min-h-[calc(100vh-64px)] w-full flex items-center justify-center bg-[#0b2239]">
+      <div className="w-full max-w-5xl grid gap-8 md:grid-cols-2 p-6">
+        {/* CLIENT SIGN IN */}
+        <div className="bg-white/95 rounded-2xl p-6 shadow-md">
+          <h2 className="text-xl font-semibold text-[#0b2239]">Client sign in</h2>
+          <p className="text-sm text-slate-600 mt-1">
+            Sign in to view and edit your profile and see your projects.
+          </p>
 
-      <form onSubmit={signInWithEmail} className="space-y-4">
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Email</label>
-          <input
-            type="email"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-sky-400"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-            required
-          />
+          <form
+            className="mt-6 grid gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleEmailPassword('user');
+            }}
+          >
+            <label className="grid gap-1">
+              <span className="text-sm text-slate-600">Email</span>
+              <input
+                ref={userEmailRef}
+                type="email"
+                className="border rounded px-3 py-2"
+                placeholder="you@example.com"
+                required
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-sm text-slate-600">Password</span>
+              <input
+                ref={userPassRef}
+                type="password"
+                className="border rounded px-3 py-2"
+                placeholder="••••••••"
+                required
+              />
+            </label>
+
+            <button
+              type="submit"
+              disabled={loading === 'user'}
+              className="inline-flex items-center justify-center rounded-lg bg-sky-400 text-[#0b2239] font-semibold px-4 py-2 hover:bg-sky-300 transition"
+            >
+              {loading === 'user' ? 'Signing in…' : 'Sign in'}
+            </button>
+
+            <button
+              type="button"
+              disabled={loading === 'google'}
+              onClick={() => void handleGoogle('user')}
+              className="inline-flex items-center justify-center rounded-lg bg-white border px-4 py-2 hover:bg-slate-50 transition"
+            >
+              {loading === 'google' ? 'Opening Google…' : 'Continue with Google'}
+            </button>
+
+            <a
+              href="/reset-password"
+              className="text-sm text-sky-600 hover:underline justify-self-start"
+            >
+              Forgot password?
+            </a>
+          </form>
         </div>
 
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Password</label>
-          <input
-            type="password"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-sky-400"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
+        {/* ADMIN SIGN IN */}
+        <div className="bg-white/95 rounded-2xl p-6 shadow-md">
+          <h2 className="text-xl font-semibold text-[#0b2239]">Admin sign in</h2>
+          <p className="text-sm text-slate-600 mt-1">
+            Admins can manage clients, projects, and assets.
+          </p>
+
+          <form
+            className="mt-6 grid gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleEmailPassword('admin');
+            }}
+          >
+            <label className="grid gap-1">
+              <span className="text-sm text-slate-600">Admin email</span>
+              <input
+                ref={adminEmailRef}
+                type="email"
+                className="border rounded px-3 py-2"
+                placeholder="admin@strand.com"
+                required
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-sm text-slate-600">Password</span>
+              <input
+                ref={adminPassRef}
+                type="password"
+                className="border rounded px-3 py-2"
+                placeholder="••••••••"
+                required
+              />
+            </label>
+
+            <button
+              type="submit"
+              disabled={loading === 'admin'}
+              className="inline-flex items-center justify-center rounded-lg bg-amber-300 text-[#0b2239] font-semibold px-4 py-2 hover:bg-amber-200 transition"
+            >
+              {loading === 'admin' ? 'Signing in…' : 'Admin sign in'}
+            </button>
+
+            <button
+              type="button"
+              disabled={loading === 'admin-google'}
+              onClick={() => void handleGoogle('admin')}
+              className="inline-flex items-center justify-center rounded-lg bg-white border px-4 py-2 hover:bg-slate-50 transition"
+            >
+              {loading === 'admin-google' ? 'Opening Google…' : 'Admin – Continue with Google'}
+            </button>
+          </form>
         </div>
 
-        {err && <p className="text-sm text-red-600">{err}</p>}
-
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-lg bg-sky-500 px-4 py-2 font-semibold text-slate-900 hover:bg-sky-400 disabled:opacity-60"
-        >
-          {busy ? 'Signing in…' : 'Sign in'}
-        </button>
-      </form>
-
-      <div className="my-4 h-px w-full bg-slate-200" />
-
-      <button
-        onClick={signInWithGoogle}
-        disabled={busy}
-        className="flex w-full items-center justify-center gap-2 rounded-lg bg-white px-4 py-2 font-semibold text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-60"
-        aria-label="Sign in with Google"
-      >
-        <svg width="18" height="18" viewBox="0 0 533.5 544.3" aria-hidden>
-          <path fill="#4285F4" d="M533.5 278.4c0-17.4-1.6-34.1-4.6-50.3H272v95.1h147.1c-6.3 34-25 62.8-53.3 82v68.2h86.2c50.4-46.5 81.5-115.1 81.5-195z"/>
-          <path fill="#34A853" d="M272 544.3c72 0 132.3-23.8 176.4-64.7l-86.2-68.2c-23.9 16.1-54.4 25.7-90.2 25.7-69 0-127.5-46.5-148.4-109.1H35.9v68.9c43.9 87.1 133.6 147.4 236.1 147.4z"/>
-          <path fill="#FBBC04" d="M123.6 327.9c-10.1-30.2-10.1-62.7 0-92.9v-68.9H35.9c-38.1 76.2-38.1 154.5 0 230.7l87.7-69z"/>
-          <path fill="#EA4335" d="M272 106.1c39.1-.6 76.7 14 105.2 40.9l78.4-78.4C407.9 24.8 344.3.1 272 0 169.6 0 79.9 60.3 36 147.4l87.6 69c20.9-62.6 79.4-110.3 148.4-110.3z"/>
-        </svg>
-        Sign in with Google
-      </button>
+        {error && (
+          <div className="md:col-span-2 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4">
+            {error}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
