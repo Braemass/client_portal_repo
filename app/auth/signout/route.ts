@@ -1,19 +1,27 @@
 // app/auth/signout/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { SUPABASE_URL, SUPABASE_ANON_KEY, SITE_URL, ROUTES } from '@/lib/site';
+import { SITE_URL, ROUTES } from '@/lib/site';
 
-export const runtime = 'nodejs'; // @supabase/ssr uses Node APIs
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-// Sign out via GET /auth/signout (optional ?next=/somewhere)
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error(
+    'Missing env vars: NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY'
+  );
+}
+
+export const runtime = 'nodejs'; // required for @supabase/ssr
+
+// Support GET /auth/signout?next=/somewhere
 export async function GET(req: NextRequest) {
   const next = new URL(req.url).searchParams.get('next') || ROUTES.login;
 
-  // Prepare a response we can attach cookie mutations to
+  // Create a redirect response we can mutate cookies on
   const res = NextResponse.redirect(new URL(next, SITE_URL));
 
-  // Create a server client wired to *request* cookies (read)
-  // and *response* cookies (write/remove)
+  // Wire Supabase to request cookies (read) and response cookies (write)
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
       get(name: string) {
@@ -32,7 +40,7 @@ export async function GET(req: NextRequest) {
   return res;
 }
 
-// Support POST /auth/signout too
+// Also allow POST /auth/signout
 export async function POST(req: NextRequest) {
   return GET(req);
 }
