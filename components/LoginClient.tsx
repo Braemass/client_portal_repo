@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
-import { ADMIN_REDIRECT, DEFAULT_USER_REDIRECT, SITE_URL, isAdmin } from '@/lib/site';
+import { ADMIN_REDIRECT, DEFAULT_USER_REDIRECT, SITE_URL, isAdminEmail as isAdmin } from '@/lib/site';
 
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
