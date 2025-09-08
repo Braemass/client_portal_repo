@@ -1,66 +1,87 @@
 // app/auth/callback/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
-import { SITE_URL, ADMIN_REDIRECT, DEFAULT_USER_REDIRECT, isAdmin } from '@/lib/site';
+import { cookies } from 'next/headers';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
 export const runtime = 'nodejs';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-/**
- * Handles OAuth / magic-link / recovery callbacks.
- * - Exchanges ?code or ?token_hash for a session.
- * - Writes auth cookies to the SAME response we return.
- * - Redirects admins to /admin, others to /profile, unless ?next is provided.
- */
+// Admin list comes from env: comma-separated emails
+const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+const isAdminEmail = (email?: string | null) =>
+  !!email && ADMIN_EMAILS.includes(email.toLowerCase());
+
+// GET /auth/callback?code=...&next=/profile|/admin
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
+  const cookieStore = cookies();
+  const res = NextResponse.next();
 
-  // Supabase can send either `code` (OAuth/magic link) or `token_hash` (recovery)
-  const code = searchParams.get('code') ?? searchParams.get('token_hash');
-  // If caller passed an explicit next, we’ll respect it after we know user role
-  const nextParam = searchParams.get('next');
-
-  // Build a single redirect response now; we'll set Location later.
-  const res = new NextResponse(null, { status: 302 });
-
-  // Create server Supabase client that reads from req.cookies and writes to res.cookies
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
-      get: (name: string) => req.cookies.get(name)?.value,
-      set: (name: string, value: string, options?: any) => {
-        // NextResponse allows object form
-        res.cookies.set({ name, value, ...(options || {}) });
+      get(name: string) {
+        return cookieStore.get(name)?.value;
       },
-      remove: (name: string, options?: any) => {
-        res.cookies.set({ name, value: '', ...(options || {}), maxAge: 0 });
+      set(name: string, value: string, options: CookieOptions) {
+        res.cookies.set({ name, value, ...options });
+      },
+      remove(name: string, options: CookieOptions) {
+        res.cookies.set({ name, value: '', ...options, maxAge: 0 });
       },
     },
   });
 
-  // If a code is present, exchange it for a session (required to be "logged in")
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) {
-      // Stay on /login and surface the error
-      res.headers.set(
-        'Location',
-        new URL(`/login?error=${encodeURIComponent(error.message)}`, SITE_URL).toString(),
-      );
-      return res;
-    }
+  const url = new URL(req.url);
+  const code = url.searchParams.get('code');
+  const next = url.searchParams.get('next') || '/profile';
+
+  if (!code) {
+    return NextResponse.redirect(new URL('/login?error=missing_code', req.url));
   }
 
-  // Determine user & target route
-  const { data: userData } = await supabase.auth.getUser();
-  const email = userData?.user?.email ?? null;
+  // Exchange the code for a session
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    return NextResponse.redirect(
+      new URL(`/login?error=${encodeURIComponent(error.message)}`, req.url)
+    );
+  }
 
-  const target =
-    nextParam ||
-    (isAdmin(email) ? ADMIN_REDIRECT : DEFAULT_USER_REDIRECT);
+  // Decide destination by admin status
+  const { data } = await supabase.auth.getUser();
+  const email = data.user?.email ?? null;
+  const dest = isAdminEmail(email) ? '/admin' : next;
 
-  res.headers.set('Location', new URL(target, SITE_URL).toString());
+  return NextResponse.redirect(new URL(dest, req.url));
+}
+
+// POST /auth/callback  — sync server cookies after password sign-in
+export async function POST(_req: NextRequest) {
+  const cookieStore = cookies();
+  const res = NextResponse.json({ ok: true });
+
+  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value;
+      },
+      set(name: string, value: string, options: CookieOptions) {
+        res.cookies.set({ name, value, ...options });
+      },
+      remove(name: string, options: CookieOptions) {
+        res.cookies.set({ name, value: '', ...options, maxAge: 0 });
+      },
+    },
+  });
+
+  // Touch the session to ensure cookies are mirrored server-side
+  await supabase.auth.getSession();
+
   return res;
 }
 
