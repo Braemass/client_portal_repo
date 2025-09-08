@@ -2,31 +2,31 @@
 import { Suspense } from 'react';
 import LoginClient from './LoginClient';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-
-export const metadata = {
-  title: 'StrandAerial • Client Portal — Login',
-};
-
-export default function Page() {
+export default function LoginPage() {
   return (
-    <main className="min-h-screen bg-slate-950">
-      <div className="mx-auto max-w-7xl px-4 py-16">
-        <div className="mx-auto w-full max-w-[440px] rounded-2xl bg-white/[0.06] border border-white/10 p-6 shadow-2xl backdrop-blur">
-          <h1 className="text-xl font-bold text-sky-400">Client Portal with StrandAerial</h1>
-          <p className="mt-1 text-sm text-slate-300">
-            Sign in to view your profile and projects. Admins can use the Admin Login.
-          </p>
+    <div className="min-h-screen bg-[#0b2239] text-white">
+      {/* Center the card / content */}
+      <div className="mx-auto max-w-6xl px-4 py-10">
+        <header className="mb-8 flex items-center justify-between">
+          <h1 className="text-lg font-semibold tracking-tight">
+            <span className="opacity-80">Client Portal</span>{' '}
+            <span className="opacity-60">• StrandAerial</span>
+          </h1>
+        </header>
 
-          <div className="mt-6">
-            <Suspense fallback={<div className="text-slate-400 text-sm">Loading…</div>}>
-              <LoginClient />
-            </Suspense>
-          </div>
+        <div className="flex min-h-[70vh] items-center justify-center">
+          <Suspense
+            fallback={
+              <div className="rounded-xl border border-white/10 bg-white/5 px-6 py-4 text-sm text-white/80">
+                Loading…
+              </div>
+            }
+          >
+            <LoginClient />
+          </Suspense>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 

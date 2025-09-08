@@ -1,87 +1,54 @@
 // app/auth/callback/route.ts
+// --------------------------
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { isAdminEmail, ROUTES, SITE_URL } from '@/lib/site';
 
 export const runtime = 'nodejs';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-// Comma-separated list of admin emails in env: NEXT_PUBLIC_ADMIN_EMAILS
-const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || '')
-  .split(',')
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
-
-const isAdminEmail = (email?: string | null) =>
-  !!email && ADMIN_EMAILS.includes(email.toLowerCase());
-
-// GET /auth/callback?code=...&next=/profile|/admin
 export async function GET(req: NextRequest) {
-  const cookieStore = await cookies(); // <-- fix: await
-  const res = NextResponse.next();
-
-  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value;
-      },
-      set(name: string, value: string, options: CookieOptions) {
-        res.cookies.set({ name, value, ...options });
-      },
-      remove(name: string, options: CookieOptions) {
-        res.cookies.set({ name, value: '', ...options, maxAge: 0 });
-      },
-    },
-  });
-
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
-  const next = url.searchParams.get('next') || '/profile';
+  const nextParam = url.searchParams.get('next');
 
   if (!code) {
-    return NextResponse.redirect(new URL('/login?error=missing_code', req.url));
+    return NextResponse.redirect(new URL(`${ROUTES.LOGIN}?error=missing_code`, SITE_URL));
   }
 
-  // Exchange the OAuth code for a session
+  // Prepare redirect response; we’ll update the Location after we know the role
+  const res = NextResponse.redirect(new URL(ROUTES.USER_HOME, SITE_URL));
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return req.cookies.get(name)?.value;
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          res.cookies.set({ name, value, ...options });
+        },
+        remove(name: string, options: CookieOptions) {
+          res.cookies.set({ name, value: '', ...options, maxAge: 0 });
+        },
+      },
+    }
+  );
+
+  // Exchange the code for a session (this sets the session cookies on `res`)
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(error.message)}`, req.url)
+      new URL(`${ROUTES.LOGIN}?error=${encodeURIComponent(error.message)}`, SITE_URL)
     );
   }
 
-  // Decide destination by admin status
-  const { data } = await supabase.auth.getUser();
-  const email = data.user?.email ?? null;
-  const dest = isAdminEmail(email) ? '/admin' : next;
+  const { data: { user } } = await supabase.auth.getUser();
+  const email = user?.email ?? '';
 
-  return NextResponse.redirect(new URL(dest, req.url));
-}
-
-// POST /auth/callback — used by email+password flow to sync cookies for SSR
-export async function POST(_req: NextRequest) {
-  const cookieStore = await cookies(); // <-- fix: await
-  const res = NextResponse.json({ ok: true });
-
-  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value;
-      },
-      set(name: string, value: string, options: CookieOptions) {
-        res.cookies.set({ name, value, ...options });
-      },
-      remove(name: string, options: CookieOptions) {
-        res.cookies.set({ name, value: '', ...options, maxAge: 0 });
-      },
-    },
-  });
-
-  // Touch the session so server cookies mirror the browser session
-  await supabase.auth.getSession();
-
+  const target = nextParam ?? (isAdminEmail(email) ? ROUTES.ADMIN_HOME : ROUTES.USER_HOME);
+  res.headers.set('Location', new URL(target, SITE_URL).toString());
   return res;
 }
 

@@ -1,72 +1,71 @@
 // app/profile/page.tsx
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import createSupabaseServerClient from '@/lib/supabaseServer';
-import ProfilePanel from '@/components/ProfilePanel';
+import { saveProfile } from './actions';
+
+export const runtime = 'nodejs';
 
 export default async function ProfilePage() {
-  const supabase = await createSupabaseServerClient();
-  const { data: sessionData } = await supabase.auth.getSession();
-  const session = sessionData.session;
-  if (!session) redirect('/login');
-
-  const email = session.user.email!;
-  let client: any = null;
-
-  // prefer clients table
-  const { data: cRows } = await supabase
-    .from('clients')
-    .select('id,name,company,email,phone,avatar_url,created_at')
-    .eq('email', email)
-    .limit(1);
-  if (cRows && cRows.length) client = cRows[0];
-
-  // fallback to profiles
-  if (!client) {
-    const { data: p } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', session.user.id)
-      .maybeSingle();
-    if (p) {
-      client = {
-        id: p.id,
-        name: p.full_name ?? p.name ?? p.username ?? p.email ?? 'User',
-        company: p.company ?? p.organization ?? null,
-        email: p.email ?? email,
-        phone: p.phone ?? null,
-        avatar_url: p.avatar_url ?? null,
-        created_at: p.created_at ?? null,
-      };
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get: (name) => cookieStore.get(name)?.value,
+        set: () => {},
+        remove: () => {},
+      },
     }
-  }
+  );
 
-  if (!client) {
-    await supabase
-      .from('clients')
-      .upsert({ email, name: session.user.user_metadata?.full_name ?? null })
-      .select()
-      .maybeSingle();
-    const { data: refetch } = await supabase
-      .from('clients')
-      .select('id,name,company,email,phone,avatar_url,created_at')
-      .eq('email', email)
-      .limit(1);
-    client = (refetch && refetch[0]) || { id: session.user.id, email };
-  }
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login?next=/profile');
 
-  const { data: projects } = await supabase
-    .from('projects')
-    .select('id,title,status,created_at')
-    .eq('client_id', client.id)
-    .order('created_at', { ascending: false });
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  async function action(formData: FormData) {
+    'use server';
+    return await saveProfile(formData);
+  }
 
   return (
-    <main className="min-h-screen bg-gray-50 text-gray-900">
-      <div className="mx-auto max-w-6xl px-4 py-6">
-        <h1 className="mb-4 text-2xl font-semibold">Your Profile</h1>
-        <ProfilePanel initialClient={client} initialProjects={projects || []} />
+    <div className="min-h-[calc(100vh-64px)] bg-white">
+      <div className="max-w-2xl mx-auto p-6">
+        <h1 className="text-xl font-semibold mb-4">Your profile</h1>
+
+        <form action={action} className="grid gap-4">
+          <label className="grid gap-1">
+            <span className="text-sm text-gray-600">Email</span>
+            <input className="border rounded px-3 py-2" name="email" defaultValue={user.email ?? ''} readOnly />
+          </label>
+
+          <label className="grid gap-1">
+            <span className="text-sm text-gray-600">Full name</span>
+            <input className="border rounded px-3 py-2" name="full_name" defaultValue={(profile?.full_name ?? '') as string} />
+          </label>
+
+          <label className="grid gap-1">
+            <span className="text-sm text-gray-600">Company</span>
+            <input className="border rounded px-3 py-2" name="company" defaultValue={(profile?.company ?? '') as string} />
+          </label>
+
+          <label className="grid gap-1">
+            <span className="text-sm text-gray-600">Phone</span>
+            <input className="border rounded px-3 py-2" name="phone" defaultValue={(profile?.phone ?? '') as string} />
+          </label>
+
+          <button className="mt-2 rounded-lg bg-sky-500 text-white px-4 py-2 font-medium hover:bg-sky-600">
+            Save
+          </button>
+        </form>
       </div>
-    </main>
+    </div>
   );
 }
 
