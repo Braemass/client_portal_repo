@@ -1,37 +1,37 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { NextRequest, NextResponse } from 'next/server';
+import createSupabaseAdmin from '@/lib/supabaseAdmin';
 
-const supa = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!  // server-only
-)
-
+/**
+ * Create a one-time signed upload URL for Storage.
+ * Requires SUPABASE_SERVICE_ROLE_KEY on the server.
+ *
+ * POST /api/storage/signed-upload
+ * { "bucket": "deliverables", "path": "projects/123/myfile.jpg" }
+ *
+ * Response: { signedUrl, token, path }
+ */
 export async function POST(req: NextRequest) {
-  try {
-    const { projectId, filename } = await req.json()
-    if (!projectId || !filename) {
-      return NextResponse.json({ error: 'Missing projectId or filename' }, { status: 400 })
-    }
-    const safe = String(filename).replace(/\s+/g, '_')
-    const path = `${projectId}/${Date.now()}-${safe}`
+  const body = await req.json().catch(() => ({}));
+  const bucket = (body.bucket as string) || 'deliverables';
+  const path = body.path as string | undefined;
 
-    const { data, error } = await supa.storage
-      .from('deliverables')
-      .createSignedUploadUrl(path)
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-
-    return NextResponse.json({ path, token: data.token })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Server error' }, { status: 500 })
+  if (!path) {
+    return NextResponse.json({ error: 'Missing "path" in body' }, { status: 400 });
   }
-}
 
-function guessContentType(name: string) {
-  const ext = name.toLowerCase().split('.').pop() || ''
-  if (['tif','tiff'].includes(ext)) return 'image/tiff'
-  if (ext === 'pdf') return 'application/pdf'
-  if (['jpg','jpeg','png','webp','gif'].includes(ext)) return `image/${ext==='jpg'?'jpeg':ext}`
-  if (['mp4','webm','mov','m4v','ogv'].includes(ext)) return `video/${ext}`
-  return 'application/octet-stream'
+  let admin;
+  try {
+    admin = createSupabaseAdmin();
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || 'Server misconfigured' }, { status: 500 });
+  }
+
+  const { data, error } = await admin.storage.from(bucket).createSignedUploadUrl(path);
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  // data contains: { signedUrl, token, path }
+  return NextResponse.json(data);
 }
 

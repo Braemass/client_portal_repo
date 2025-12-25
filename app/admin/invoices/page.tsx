@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { useSupabaseSession } from '@/app/hooks/useSupabaseSession';
 
 type Invoice = {
   id: string
@@ -11,9 +10,10 @@ type Invoice = {
   stripe_invoice_url: string | null
   due_date: string | null
 }
-type Project = { id: string; title: string }
 
-const ACTIVE_STATUSES = ['due','overdue','open','unpaid','pending'] as const
+type Project = { id: string; title: string | null }
+
+const ACTIVE_STATUSES = ['due', 'overdue', 'open', 'unpaid', 'pending'] as const
 type Filter = 'all' | 'active' | 'due' | 'overdue' | 'paid' | 'draft'
 
 export default function AdminInvoices() {
@@ -25,25 +25,33 @@ export default function AdminInvoices() {
 
   // preload projects map
   useEffect(() => {
-    (async () => {
-      const { data, error } = await supabase.from('projects').select('id,title')
-      if (!error && data) {
-        const map = Object.fromEntries(data.map(p => [p.id, p]))
+    ;(async () => {
+      const { data: projectsData, error: projectsError } = await supabase
+        .from('projects')
+        .select('id,title')
+
+      if (!projectsError && projectsData) {
+        const map = Object.fromEntries(
+          (projectsData as Project[]).map((p: Project) => [p.id, p])
+        ) as Record<string, Project>
         setProjectsById(map)
       }
     })()
   }, [])
 
-  // fetch invoices (grab broadly; filter in code to be robust to differing status vocab)
+  // fetch invoices
   useEffect(() => {
-    (async () => {
-      setLoading(true); setErr('')
+    ;(async () => {
+      setLoading(true)
+      setErr('')
       const { data, error } = await supabase
         .from('invoices')
         .select('id, project_id, status, amount_cents, stripe_invoice_url, due_date')
-        .order('due_date', { ascending: true, nullsLast: true })
+        // v2: use nullsFirst (false => nulls last) or omit it
+        .order('due_date', { ascending: true, nullsFirst: false })
+
       if (error) setErr(error.message)
-      setRows(data || [])
+      setRows((data || []) as Invoice[])
       setLoading(false)
     })()
   }, [])
@@ -51,27 +59,31 @@ export default function AdminInvoices() {
   const filtered = useMemo(() => {
     if (filter === 'all') return rows
     if (filter === 'active') {
-      return rows.filter(r => r.status && ACTIVE_STATUSES.includes(r.status.toLowerCase() as any))
+      const toLower = (s: string | null) => (s ?? '').toLowerCase()
+      return rows.filter((r) => {
+        const s = toLower(r.status)
+        return s && (ACTIVE_STATUSES as readonly string[]).includes(s)
+      })
     }
-    return rows.filter(r => (r.status || '').toLowerCase() === filter)
+    return rows.filter((r) => (r.status || '').toLowerCase() === filter)
   }, [rows, filter])
 
   async function markPaid(id: string) {
     await supabase.from('invoices').update({ status: 'paid' }).eq('id', id)
-    setRows(prev => prev.map(r => (r.id === id ? { ...r, status: 'paid' } : r)))
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'paid' } : r)))
   }
 
   return (
-    <main className="min-h-screen p-6 bg-gray-50">
+    <main className="min-h-screen bg-gray-50 p-6">
       <div className="mx-auto max-w-5xl space-y-4">
         <h1 className="text-2xl font-semibold">Invoices</h1>
 
-        <div className="rounded-2xl border bg-white p-4 shadow flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-white p-4 shadow">
           <span className="text-sm text-gray-600">Filter:</span>
           <select
             className="rounded-lg border px-3 py-2"
             value={filter}
-            onChange={e => setFilter(e.target.value as Filter)}
+            onChange={(e) => setFilter(e.target.value as Filter)}
           >
             <option value="active">Active (due/open/unpaid)</option>
             <option value="all">All</option>
@@ -92,12 +104,15 @@ export default function AdminInvoices() {
           <div className="rounded-xl border bg-white p-4">Loading…</div>
         ) : (
           <ul className="grid gap-3">
-            {filtered.map(inv => {
+            {filtered.map((inv) => {
               const pr = projectsById[inv.project_id]
               const amount = ((inv.amount_cents ?? 0) / 100).toFixed(2)
               const status = (inv.status || '').toUpperCase()
               return (
-                <li key={inv.id} className="rounded-xl border bg-white p-4 flex items-center justify-between">
+                <li
+                  key={inv.id}
+                  className="flex items-center justify-between rounded-xl border bg-white p-4"
+                >
                   <div>
                     <div className="font-medium">
                       ${amount} • {status || 'UNKNOWN'}
@@ -105,7 +120,9 @@ export default function AdminInvoices() {
                     <div className="text-sm text-gray-500">
                       Project:{' '}
                       {pr ? (
-                        <a className="text-blue-600" href={`/admin/projects/${pr.id}`}>{pr.title}</a>
+                        <a className="text-blue-600" href={`/admin/projects/${pr.id}`}>
+                          {pr.title ?? pr.id}
+                        </a>
                       ) : (
                         inv.project_id
                       )}

@@ -1,27 +1,38 @@
-import type { ReactNode } from 'react';
-import Link from 'next/link';
-import UserBar from '@/components/UserBar';
+// app/admin/layout.tsx
+import { cookies } from 'next/headers';
+import { createServerClient } from '@supabase/ssr';
+import { ADMIN_EMAILS } from '@/lib/site';
+import { redirect } from 'next/navigation';
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
-  return (
-    <div className="min-h-screen">
-      {/* Top admin nav */}
-      <header className="sticky top-0 z-30 border-b bg-white/80 backdrop-blur">
-        <div className="mx-auto max-w-6xl h-12 sm:h-14 px-4 flex items-center justify-between">
-          <nav className="flex items-center gap-4 text-sm">
-            <Link href="/admin" className="font-semibold hover:opacity-80">Admin</Link>
-            <Link href="/admin/projects" className="hover:opacity-80">Projects</Link>
-            <Link href="/admin/clients" className="hover:opacity-80">Clients</Link>
-            <Link href="/admin/upload" className="hover:opacity-80">Upload</Link>
-            <Link href="/admin/invoices" className="hover:opacity-80">Invoices</Link>
-          </nav>
-          <UserBar />
-        </div>
-      </header>
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-      {/* Page content */}
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
-    </div>
+function isAdminEmail(email?: string | null) {
+  if (!email) return false;
+  return ADMIN_EMAILS.map((e) => e.toLowerCase()).includes(email.toLowerCase());
+}
+
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  const cookieStore = await cookies(); // Next 15: cookies() is async in RSC
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get: (name) => cookieStore.get(name)?.value,
+        set: () => {},
+        remove: () => {},
+      },
+    }
   );
+
+  const { data } = await supabase.auth.getUser();
+  const email = data.user?.email;
+
+  if (!isAdminEmail(email)) {
+    redirect('/profile');
+  }
+
+  return <>{children}</>;
 }
 
